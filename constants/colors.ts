@@ -1,0 +1,45 @@
+const Colors = {
+  primary: "#0A0A0F",
+  secondary: "#12121A",
+  tertiary: "#1A1A25",
+  accent: "#00D4AA",
+  accentDark: "#00B894",
+  accentLight: "#00E6B8",
+  warning: "#FFB800",
+  error: "#FF4757",
+  success: "#00D4AA",
+  text: "#FFFFFF",
+  textSecondary: "#A0A0A0",
+  textMuted: "#6B6B6B",
+  border: "#252530",
+  borderLight: "#353545",
+  cardBg: "#12121A",
+  inputBg: "#1A1A25",
+  overlay: "rgba(0, 0, 0, 0.85)",
+  gradient: {
+    start: "#00D4AA",
+    end: "#00B894",
+  },
+  brand: {
+    deepBlue: "#1E3A5F",
+    electricBlue: "#2563EB",
+    fireOrange: "#F97316",
+    flameRed: "#EF4444",
+    cosmic: "#0F172A",
+    nebula: "#1E1B4B",
+  },
+  brandGradient: {
+    start: "#2563EB",
+    middle: "#7C3AED",
+    end: "#F97316",
+  },
+  light: {
+    text: "#FFFFFF",
+    background: "#0A0A0F",
+    tint: "#00D4AA",
+    tabIconDefault: "#6B6B6B",
+    tabIconSelected: "#00D4AA",
+  },
+};
+
+export default Colors;
