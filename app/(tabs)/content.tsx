@@ -132,6 +132,9 @@ DAY 7 - Final offer:`,
       content: generatedContent,
       status: 'generated',
       createdAt: new Date().toISOString(),
+      usageCount: 0,
+      resultCount: 0,
+      rating: 0,
     };
     
     addContent(newContent);

@@ -136,6 +136,9 @@ export interface RevenueAsset {
   createdAt: string;
   updatedAt: string;
   results?: string;
+  usageCount: number;
+  resultCount: number;
+  rating: number;
 }
 
 export interface ContentItem {
@@ -147,6 +150,9 @@ export interface ContentItem {
   platform?: string;
   status: 'generated' | 'used' | 'saved';
   createdAt: string;
+  usageCount: number;
+  resultCount: number;
+  rating: number;
 }
 
 export interface Task {
@@ -192,6 +198,36 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp: string;
+}
+
+export interface WeeklyReviewPriority {
+  title: string;
+  reason: string;
+  focusArea: string;
+}
+
+export interface WeeklyReview {
+  id: string;
+  projectId: string;
+  createdAt: string;
+  periodStart: string;
+  periodEnd: string;
+  metricsTotals: MetricsSnapshot;
+  metricsPrior: MetricsSnapshot;
+  deltas: {
+    views: number;
+    clicks: number;
+    messages: number;
+    calls: number;
+    sales: number;
+  };
+  directivesCompleted: number;
+  streak: number;
+  consistencyScore: number;
+  bottleneckCurrent: BottleneckCategory | null;
+  bottleneckPrior: BottleneckCategory | null;
+  bottleneckChanged: boolean;
+  nextWeekFocus: WeeklyReviewPriority[];
 }
 
 export interface BusinessProfile {

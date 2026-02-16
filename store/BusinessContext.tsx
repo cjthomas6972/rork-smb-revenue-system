@@ -19,13 +19,16 @@ import {
   DirectiveCompletionLog,
   BottleneckDiagnosis,
   ExecutionStats,
+  WeeklyReview,
 } from '@/types/business';
 import {
   diagnoseBottleneck,
   computeExecutionStats,
+  generateWeeklyReview,
 } from '@/utils/executionEngine';
 
 const STORAGE_KEYS = {
+  WEEKLY_REVIEWS: 'skyforge_weekly_reviews',
   PROJECTS: 'skyforge_projects',
   ACTIVE_PROJECT_ID: 'skyforge_active_project_id',
   METRICS: 'skyforge_metrics',
@@ -110,6 +113,14 @@ export const [BusinessProvider, useBusiness] = createContextHook(() => {
     queryFn: async () => {
       const stored = await AsyncStorage.getItem(STORAGE_KEYS.MONTHLY_MILESTONE);
       return stored ? JSON.parse(stored) as MonthlyMilestone[] : [];
+    },
+  });
+
+  const weeklyReviewsQuery = useQuery({
+    queryKey: ['weeklyReviews'],
+    queryFn: async () => {
+      const stored = await AsyncStorage.getItem(STORAGE_KEYS.WEEKLY_REVIEWS);
+      return stored ? JSON.parse(stored) as WeeklyReview[] : [];
     },
   });
 
@@ -291,6 +302,7 @@ export const [BusinessProvider, useBusiness] = createContextHook(() => {
       const current = projectsQuery.data || [];
       const now = new Date().toISOString();
       let completionLog: DirectiveCompletionLog | null = null;
+      let linkedAssetIds: string[] = [];
 
       const updated = current.map(p => {
         if (p.id === projectId && p.dailyDirective) {
@@ -301,6 +313,7 @@ export const [BusinessProvider, useBusiness] = createContextHook(() => {
             title: p.dailyDirective.title,
             modeTag: p.dailyDirective.modeTag || 'general',
           };
+          linkedAssetIds = p.dailyDirective.linkedAssets || [];
           return { 
             ...p, 
             dailyDirective: { ...p.dailyDirective, status: 'complete' as const },
@@ -310,6 +323,23 @@ export const [BusinessProvider, useBusiness] = createContextHook(() => {
         return p;
       });
       await AsyncStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(updated));
+
+      if (linkedAssetIds.length > 0) {
+        const currentAssets = assetsQuery.data || [];
+        const updatedAssets = currentAssets.map(a => 
+          linkedAssetIds.includes(a.id) ? { ...a, usageCount: (a.usageCount || 0) + 1, updatedAt: now } : a
+        );
+        await AsyncStorage.setItem(STORAGE_KEYS.ASSETS, JSON.stringify(updatedAssets));
+
+        const currentContent = contentQuery.data || [];
+        const updatedContent = currentContent.map(c => 
+          linkedAssetIds.includes(c.id) ? { ...c, usageCount: (c.usageCount || 0) + 1 } : c
+        );
+        await AsyncStorage.setItem(STORAGE_KEYS.CONTENT, JSON.stringify(updatedContent));
+
+        queryClient.setQueryData(['assets'], updatedAssets);
+        queryClient.setQueryData(['content'], updatedContent);
+      }
 
       if (completionLog) {
         const currentLogs = completionLogsQuery.data || [];
@@ -408,6 +438,67 @@ export const [BusinessProvider, useBusiness] = createContextHook(() => {
     },
     onSuccess: (assets) => {
       queryClient.setQueryData(['assets'], assets);
+    },
+  });
+
+  const rateAssetMutation = useMutation({
+    mutationFn: async ({ id, rating }: { id: string; rating: number }) => {
+      const currentAssets = assetsQuery.data || [];
+      const inAssets = currentAssets.find(a => a.id === id);
+      if (inAssets) {
+        const updated = currentAssets.map(a => a.id === id ? { ...a, rating, updatedAt: new Date().toISOString() } : a);
+        await AsyncStorage.setItem(STORAGE_KEYS.ASSETS, JSON.stringify(updated));
+        return { type: 'asset' as const, data: updated };
+      }
+      const currentContent = contentQuery.data || [];
+      const updatedContent = currentContent.map(c => c.id === id ? { ...c, rating } : c);
+      await AsyncStorage.setItem(STORAGE_KEYS.CONTENT, JSON.stringify(updatedContent));
+      return { type: 'content' as const, data: updatedContent };
+    },
+    onSuccess: (result) => {
+      if (result.type === 'asset') {
+        queryClient.setQueryData(['assets'], result.data);
+      } else {
+        queryClient.setQueryData(['content'], result.data);
+      }
+    },
+  });
+
+  const incrementAssetResultMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const currentAssets = assetsQuery.data || [];
+      const inAssets = currentAssets.find(a => a.id === id);
+      if (inAssets) {
+        const updated = currentAssets.map(a => a.id === id ? { ...a, resultCount: (a.resultCount || 0) + 1, updatedAt: new Date().toISOString() } : a);
+        await AsyncStorage.setItem(STORAGE_KEYS.ASSETS, JSON.stringify(updated));
+        return { type: 'asset' as const, data: updated };
+      }
+      const currentContent = contentQuery.data || [];
+      const updatedContent = currentContent.map(c => c.id === id ? { ...c, resultCount: (c.resultCount || 0) + 1 } : c);
+      await AsyncStorage.setItem(STORAGE_KEYS.CONTENT, JSON.stringify(updatedContent));
+      return { type: 'content' as const, data: updatedContent };
+    },
+    onSuccess: (result) => {
+      if (result.type === 'asset') {
+        queryClient.setQueryData(['assets'], result.data);
+      } else {
+        queryClient.setQueryData(['content'], result.data);
+      }
+    },
+  });
+
+  const generateWeeklyReviewMutation = useMutation({
+    mutationFn: async (projectId: string) => {
+      const allMetrics = metricsQuery.data || [];
+      const allLogs = completionLogsQuery.data || [];
+      const review = generateWeeklyReview(allMetrics, allLogs, projectId);
+      const currentReviews = weeklyReviewsQuery.data || [];
+      const updated = [...currentReviews, review];
+      await AsyncStorage.setItem(STORAGE_KEYS.WEEKLY_REVIEWS, JSON.stringify(updated));
+      return { reviews: updated, review };
+    },
+    onSuccess: ({ reviews }) => {
+      queryClient.setQueryData(['weeklyReviews'], reviews);
     },
   });
 
@@ -666,6 +757,8 @@ export const [BusinessProvider, useBusiness] = createContextHook(() => {
     addAsset: addAssetMutation.mutate,
     updateAsset: updateAssetMutation.mutate,
     deleteAsset: deleteAssetMutation.mutate,
+    rateAsset: rateAssetMutation.mutate,
+    incrementAssetResult: incrementAssetResultMutation.mutate,
     addContent: addContentMutation.mutate,
     setTasks: setTasksMutation.mutate,
     toggleTask: toggleTaskMutation.mutate,
@@ -678,5 +771,9 @@ export const [BusinessProvider, useBusiness] = createContextHook(() => {
     completionLogs,
     currentBottleneck,
     executionStats,
+
+    weeklyReviews: (weeklyReviewsQuery.data ?? []).filter(r => r.projectId === activeProjectId),
+    generateWeeklyReview: generateWeeklyReviewMutation.mutate,
+    isGeneratingReview: generateWeeklyReviewMutation.isPending,
   };
 });

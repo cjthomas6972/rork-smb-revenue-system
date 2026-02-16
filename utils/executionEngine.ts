@@ -5,6 +5,8 @@ import {
   BottleneckCategory,
   DirectiveCompletionLog,
   ExecutionStats,
+  WeeklyReview,
+  WeeklyReviewPriority,
 } from '@/types/business';
 
 function getDateString(date: Date): string {
@@ -260,5 +262,139 @@ export function computeExecutionStats(
     consistencyScore: computeConsistencyScore(completionLogs, projectId),
     revenuePerDirective: computeRevenuePerDirective(metrics, completionLogs, projectId),
     lastUpdated: new Date().toISOString(),
+  };
+}
+
+function generateNextWeekFocus(
+  currentBottleneck: BottleneckCategory | null,
+  deltas: { views: number; clicks: number; messages: number; calls: number; sales: number },
+  completionRate: number
+): WeeklyReviewPriority[] {
+  const priorities: WeeklyReviewPriority[] = [];
+
+  if (currentBottleneck === 'traffic' || deltas.views < 0) {
+    priorities.push({
+      title: 'Increase visibility & traffic',
+      reason: deltas.views < 0
+        ? `Views dropped ${Math.abs(deltas.views)}%. Double down on content distribution.`
+        : 'Traffic is your primary bottleneck. Focus on getting more eyes on your offer.',
+      focusArea: 'leads',
+    });
+  }
+
+  if (currentBottleneck === 'conversion' || (deltas.clicks < 0 && deltas.views >= 0)) {
+    priorities.push({
+      title: 'Improve engagement & conversion',
+      reason: 'People see you but aren\'t engaging. Refine your hooks and CTAs.',
+      focusArea: 'conversion',
+    });
+  }
+
+  if (currentBottleneck === 'pricing' || (deltas.sales < 0 && deltas.clicks >= 0)) {
+    priorities.push({
+      title: 'Optimize offer & pricing',
+      reason: 'Interest exists but sales are stalling. Test pricing or offer variations.',
+      focusArea: 'pricing',
+    });
+  }
+
+  if (currentBottleneck === 'follow-up' || deltas.messages < 0) {
+    priorities.push({
+      title: 'Strengthen follow-up sequences',
+      reason: 'Leads are leaking. Tighten your follow-up and response time.',
+      focusArea: 'outreach',
+    });
+  }
+
+  if (completionRate < 50) {
+    priorities.push({
+      title: 'Build execution consistency',
+      reason: `Only ${completionRate}% task completion this week. Commit to completing daily directives.`,
+      focusArea: 'systems',
+    });
+  }
+
+  if (currentBottleneck === 'operations') {
+    priorities.push({
+      title: 'Streamline operations & delivery',
+      reason: 'Sales pipeline is healthy but fulfillment may be bottlenecking growth.',
+      focusArea: 'fulfillment',
+    });
+  }
+
+  if (priorities.length === 0) {
+    priorities.push(
+      { title: 'Keep publishing content daily', reason: 'Momentum is your best asset right now.', focusArea: 'content' },
+      { title: 'Expand outreach to new audiences', reason: 'Diversify traffic sources to de-risk growth.', focusArea: 'outreach' },
+      { title: 'Collect and showcase social proof', reason: 'Testimonials accelerate trust and conversion.', focusArea: 'brand expansion' },
+    );
+  }
+
+  return priorities.slice(0, 3);
+}
+
+export function generateWeeklyReview(
+  metrics: Metrics[],
+  completionLogs: DirectiveCompletionLog[],
+  projectId: string
+): WeeklyReview {
+  const recent = aggregateMetricsPeriod(metrics.filter(m => m.projectId === projectId), 0, 7);
+  const prior = aggregateMetricsPeriod(metrics.filter(m => m.projectId === projectId), 7, 14);
+
+  const safeDelta = (a: number, b: number) => (b === 0 ? (a > 0 ? 100 : 0) : Math.round(((a - b) / b) * 100));
+
+  const deltas = {
+    views: safeDelta(recent.views, prior.views),
+    clicks: safeDelta(recent.clicks, prior.clicks),
+    messages: safeDelta(recent.messages, prior.messages),
+    calls: safeDelta(recent.calls, prior.calls),
+    sales: safeDelta(recent.sales, prior.sales),
+  };
+
+  const sevenDaysAgo = getDaysAgo(7);
+  const fourteenDaysAgo = getDaysAgo(14);
+  const directivesCompleted = completionLogs.filter(
+    l => l.projectId === projectId && l.completedAt.split('T')[0] >= sevenDaysAgo
+  ).length;
+
+  const streak = computeStreak(completionLogs, projectId);
+  const consistencyScore = computeConsistencyScore(completionLogs, projectId);
+  const weeklyPct = computeWeeklyCompletionPct(completionLogs, projectId);
+
+  const projectMetrics = metrics.filter(m => m.projectId === projectId);
+  const currentBn = diagnoseBottleneck(projectMetrics);
+
+  const priorMetrics = projectMetrics.filter(m => {
+    const d = m.date.split('T')[0];
+    return d >= fourteenDaysAgo && d < sevenDaysAgo;
+  });
+  const priorBn = diagnoseBottleneck(priorMetrics);
+
+  const nextWeekFocus = generateNextWeekFocus(
+    currentBn?.category ?? null,
+    deltas,
+    weeklyPct
+  );
+
+  const now = new Date();
+  const weekAgo = new Date();
+  weekAgo.setDate(weekAgo.getDate() - 7);
+
+  return {
+    id: Date.now().toString(),
+    projectId,
+    createdAt: now.toISOString(),
+    periodStart: weekAgo.toISOString(),
+    periodEnd: now.toISOString(),
+    metricsTotals: recent,
+    metricsPrior: prior,
+    deltas,
+    directivesCompleted,
+    streak,
+    consistencyScore,
+    bottleneckCurrent: currentBn?.category ?? null,
+    bottleneckPrior: priorBn?.category ?? null,
+    bottleneckChanged: (currentBn?.category ?? null) !== (priorBn?.category ?? null),
+    nextWeekFocus,
   };
 }

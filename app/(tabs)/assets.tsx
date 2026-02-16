@@ -22,6 +22,10 @@ import {
   Edit3,
   X,
   Briefcase,
+  Star,
+  Trophy,
+  BarChart3,
+  Link2,
 } from 'lucide-react-native';
 import { useBusiness } from '@/store/BusinessContext';
 import { RevenueAsset } from '@/types/business';
@@ -36,8 +40,130 @@ const ASSET_TYPES = [
   { key: 'funnel', label: 'Funnel', icon: FileText },
 ] as const;
 
+function TopPerformingSection({ assets }: { assets: RevenueAsset[] }) {
+  const ranked = React.useMemo(() => {
+    const withUsage = assets.filter(a => (a.usageCount || 0) > 0);
+    return withUsage
+      .map(a => {
+        const usage = a.usageCount || 0;
+        const results = a.resultCount || 0;
+        const rating = a.rating || 0;
+        const ratio = usage > 0 ? results / usage : 0;
+        const score = (ratio * 0.6 + (rating / 5) * 0.4) * 100;
+        return { ...a, ratio, score };
+      })
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5);
+  }, [assets]);
+
+  if (ranked.length === 0) return null;
+
+  return (
+    <View style={topStyles.container}>
+      <View style={topStyles.header}>
+        <Trophy size={16} color="#F59E0B" />
+        <Text style={topStyles.headerText}>Top Performing Assets</Text>
+      </View>
+      {ranked.map((item, idx) => (
+        <View key={item.id} style={topStyles.row}>
+          <View style={[topStyles.rank, { backgroundColor: idx === 0 ? '#F59E0B20' : Colors.tertiary }]}>
+            <Text style={[topStyles.rankText, idx === 0 && { color: '#F59E0B' }]}>{idx + 1}</Text>
+          </View>
+          <View style={topStyles.info}>
+            <Text style={topStyles.title} numberOfLines={1}>{item.title}</Text>
+            <View style={topStyles.stats}>
+              <Text style={topStyles.stat}>{item.usageCount || 0} uses</Text>
+              <Text style={topStyles.statDot}>{"\u00B7"}</Text>
+              <Text style={topStyles.stat}>{item.resultCount || 0} results</Text>
+              <Text style={topStyles.statDot}>{"\u00B7"}</Text>
+              <View style={topStyles.ratingRow}>
+                <Star size={10} color="#F59E0B" fill="#F59E0B" />
+                <Text style={topStyles.stat}>{(item.rating || 0).toFixed(1)}</Text>
+              </View>
+            </View>
+          </View>
+          <Text style={topStyles.score}>{Math.round(item.score)}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+const topStyles = StyleSheet.create({
+  container: {
+    backgroundColor: Colors.secondary,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    gap: 10,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
+  headerText: {
+    fontSize: 14,
+    fontWeight: '700' as const,
+    color: Colors.text,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 6,
+  },
+  rank: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  rankText: {
+    fontSize: 12,
+    fontWeight: '700' as const,
+    color: Colors.textSecondary,
+  },
+  info: {
+    flex: 1,
+    gap: 2,
+  },
+  title: {
+    fontSize: 13,
+    fontWeight: '600' as const,
+    color: Colors.text,
+  },
+  stats: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  stat: {
+    fontSize: 11,
+    color: Colors.textMuted,
+  },
+  statDot: {
+    fontSize: 11,
+    color: Colors.textMuted,
+  },
+  ratingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
+  score: {
+    fontSize: 14,
+    fontWeight: '700' as const,
+    color: Colors.accent,
+  },
+});
+
 export default function AssetsScreen() {
-  const { assets, addAsset, updateAsset, deleteAsset, activeProject, activeProjectId } = useBusiness();
+  const { assets, addAsset, updateAsset, deleteAsset, rateAsset, incrementAssetResult, activeProject, activeProjectId } = useBusiness();
   const [selectedType, setSelectedType] = useState<string | null>(null);
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [editingAsset, setEditingAsset] = useState<RevenueAsset | null>(null);
@@ -64,6 +190,16 @@ export default function AssetsScreen() {
       default:
         return <Clock size={14} color={Colors.textMuted} />;
     }
+  };
+
+  const handleRateAsset = (assetId: string, rating: number) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    rateAsset({ id: assetId, rating });
+  };
+
+  const handleIncrementResult = (assetId: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    incrementAssetResult(assetId);
   };
 
   const handleAddAsset = () => {
@@ -110,6 +246,9 @@ export default function AssetsScreen() {
         status: 'draft',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
+        usageCount: 0,
+        resultCount: 0,
+        rating: 0,
       };
       addAsset(newAsset);
     }
@@ -184,6 +323,7 @@ export default function AssetsScreen() {
       </ScrollView>
 
       <ScrollView style={styles.assetsList} contentContainerStyle={styles.assetsContent}>
+        <TopPerformingSection assets={assets} />
         {filteredAssets.length === 0 ? (
           <View style={styles.emptyState}>
             <FileText size={48} color={Colors.textMuted} />
@@ -214,7 +354,36 @@ export default function AssetsScreen() {
               <Text style={styles.assetContent} numberOfLines={3}>
                 {asset.content}
               </Text>
+              <View style={styles.assetMetrics}>
+                <View style={styles.assetMetricItem}>
+                  <Link2 size={12} color={Colors.textMuted} />
+                  <Text style={styles.assetMetricText}>{asset.usageCount || 0} uses</Text>
+                </View>
+                <View style={styles.assetMetricItem}>
+                  <BarChart3 size={12} color={Colors.textMuted} />
+                  <Text style={styles.assetMetricText}>{asset.resultCount || 0} results</Text>
+                </View>
+                <View style={styles.assetRating}>
+                  {[1, 2, 3, 4, 5].map(star => (
+                    <TouchableOpacity key={star} onPress={() => handleRateAsset(asset.id, star)} hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}>
+                      <Star
+                        size={14}
+                        color="#F59E0B"
+                        fill={(asset.rating || 0) >= star ? '#F59E0B' : 'transparent'}
+                      />
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+
               <View style={styles.assetActions}>
+                <TouchableOpacity
+                  style={styles.actionButton}
+                  onPress={() => handleIncrementResult(asset.id)}
+                >
+                  <Target size={16} color={Colors.accent} />
+                  <Text style={[styles.actionText, { color: Colors.accent }]}>+Result</Text>
+                </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.actionButton}
                   onPress={() => handleEditAsset(asset)}
@@ -456,6 +625,31 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     lineHeight: 20,
     marginBottom: 12,
+  },
+  assetMetrics: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    marginBottom: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    backgroundColor: Colors.tertiary,
+    borderRadius: 8,
+  },
+  assetMetricItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  assetMetricText: {
+    fontSize: 11,
+    color: Colors.textMuted,
+  },
+  assetRating: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    marginLeft: 'auto',
   },
   assetActions: {
     flexDirection: 'row',

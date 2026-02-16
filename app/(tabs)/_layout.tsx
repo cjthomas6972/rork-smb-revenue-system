@@ -1,5 +1,5 @@
 import { Tabs } from "expo-router";
-import { Home, MessageCircle, Briefcase, FileText, User, Zap } from "lucide-react-native";
+import { Home, MessageCircle, Briefcase, FileText, User, Zap, BarChart3 } from "lucide-react-native";
 import React from "react";
 import { StyleSheet, View } from "react-native";
 import Colors from "@/constants/colors";
@@ -40,6 +40,13 @@ export default function TabLayout() {
         options={{
           title: "Assets",
           tabBarIcon: ({ color, size }) => <Briefcase color={color} size={size} />,
+        }}
+      />
+      <Tabs.Screen
+        name="review"
+        options={{
+          title: "Review",
+          tabBarIcon: ({ color, size }) => <BarChart3 color={color} size={size} />,
         }}
       />
       <Tabs.Screen
