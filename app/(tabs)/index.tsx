@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,34 +9,59 @@ import {
   Modal,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { 
-  CheckCircle2, 
+import {
+  CheckCircle2,
   Zap,
   Plus,
   ChevronDown,
-  Sparkles,
   Clock,
   X,
   MoreHorizontal,
   Archive,
   Trash2,
   Flame,
+  Target,
+  TrendingUp,
+  Circle,
+  ChevronRight,
 } from 'lucide-react-native';
 import { useBusiness } from '@/store/BusinessContext';
 import Colors from '@/constants/colors';
 import { DailyDirective } from '@/types/business';
-import ExecutionKernelWidget from '@/components/ExecutionKernelWidget';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
-import { BrandWatermark, BrandMicroIcon } from '@/components/brand';
+import { BrandMicroIcon } from '@/components/brand';
+
+const BOTTLENECK_LABELS: Record<string, string> = {
+  traffic: 'Traffic',
+  conversion: 'Conversion',
+  pricing: 'Pricing',
+  'follow-up': 'Follow-up',
+  operations: 'Operations',
+};
+
+const BOTTLENECK_COLORS: Record<string, string> = {
+  traffic: '#3B82F6',
+  conversion: '#F59E0B',
+  pricing: '#EF4444',
+  'follow-up': '#8B5CF6',
+  operations: '#6B7280',
+};
+
+const STREAK_MESSAGES = [
+  'Operator streak: {n} day{s}. Keep building.',
+  'Momentum is compounding. {n} day{s} strong.',
+  '{n} day{s} of execution. This is how empires are built.',
+  'Relentless. {n} consecutive day{s}.',
+];
 
 export default function DashboardScreen() {
   const router = useRouter();
-  const { 
+  const {
     projects,
     activeProject,
     activeProjectId,
-    isOnboardingComplete, 
+    isOnboardingComplete,
     isLoading,
     metrics,
     currentBottleneck,
@@ -44,6 +69,8 @@ export default function DashboardScreen() {
     switchProject,
     completeDailyDirective,
     updateDailyDirective,
+    generateDailyDirective,
+    getCurrentFocus,
     archiveProject,
     deleteProject,
   } = useBusiness();
@@ -51,30 +78,76 @@ export default function DashboardScreen() {
   const [isProjectMenuOpen, setIsProjectMenuOpen] = useState(false);
   const [isProjectActionsOpen, setIsProjectActionsOpen] = useState(false);
   const [selectedProjectForActions, setSelectedProjectForActions] = useState<string | null>(null);
-  const [showDirectiveComplete, setShowDirectiveComplete] = useState(false);
-  const [showMissingCondition, setShowMissingCondition] = useState(false);
-  const [missingConditionMessage, setMissingConditionMessage] = useState('');
+  const [showCompletion, setShowCompletion] = useState(false);
+  const [completionStreak, setCompletionStreak] = useState(0);
 
-  const fadeAnim = React.useRef(new Animated.Value(0)).current;
-  const scaleAnim = React.useRef(new Animated.Value(0.95)).current;
-
-
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(20)).current;
+  const celebrateAnim = useRef(new Animated.Value(0)).current;
+  const celebrateScale = useRef(new Animated.Value(0.5)).current;
 
   useEffect(() => {
     Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 400,
-        useNativeDriver: true,
-      }),
-      Animated.spring(scaleAnim, {
-        toValue: 1,
-        friction: 8,
-        tension: 40,
-        useNativeDriver: true,
-      }),
+      Animated.timing(fadeAnim, { toValue: 1, duration: 500, useNativeDriver: true }),
+      Animated.timing(slideAnim, { toValue: 0, duration: 500, useNativeDriver: true }),
     ]).start();
-  }, [fadeAnim, scaleAnim]);
+  }, [fadeAnim, slideAnim]);
+
+  const handleCompleteDirective = useCallback(() => {
+    if (!activeProject?.dailyDirective) return;
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    completeDailyDirective(activeProject.id);
+    setCompletionStreak(executionStats.streak + 1);
+    setShowCompletion(true);
+
+    Animated.parallel([
+      Animated.timing(celebrateAnim, { toValue: 1, duration: 400, useNativeDriver: true }),
+      Animated.spring(celebrateScale, { toValue: 1, friction: 4, tension: 60, useNativeDriver: true }),
+    ]).start();
+
+    setTimeout(() => {
+      Animated.timing(celebrateAnim, { toValue: 0, duration: 300, useNativeDriver: true }).start(() => {
+        setShowCompletion(false);
+        celebrateScale.setValue(0.5);
+      });
+    }, 3000);
+  }, [activeProject, executionStats.streak, completeDailyDirective, celebrateAnim, celebrateScale]);
+
+  const handleToggleStep = useCallback((stepOrder: number) => {
+    if (!activeProject?.dailyDirective || activeProject.dailyDirective.status === 'complete') return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    const updatedSteps = activeProject.dailyDirective.steps.map(s =>
+      s.order === stepOrder ? { ...s, done: !s.done } : s
+    );
+    const updatedDirective: DailyDirective = {
+      ...activeProject.dailyDirective,
+      steps: updatedSteps,
+    };
+    updateDailyDirective({ projectId: activeProject.id, directive: updatedDirective });
+  }, [activeProject, updateDailyDirective]);
+
+  const handleGenerateNew = useCallback(() => {
+    if (!activeProject) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const focus = getCurrentFocus();
+    const directive = generateDailyDirective(focus);
+    updateDailyDirective({ projectId: activeProject.id, directive });
+  }, [activeProject, getCurrentFocus, generateDailyDirective, updateDailyDirective]);
+
+  const handleSwitchProject = useCallback((projectId: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    switchProject(projectId);
+    setIsProjectMenuOpen(false);
+  }, [switchProject]);
+
+  const handleProjectAction = useCallback((action: 'archive' | 'delete', projectId: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    if (action === 'archive') archiveProject(projectId);
+    else deleteProject(projectId);
+    setIsProjectActionsOpen(false);
+    setSelectedProjectForActions(null);
+  }, [archiveProject, deleteProject]);
 
   if (isLoading || isOnboardingComplete === null || !activeProject) {
     return (
@@ -84,295 +157,228 @@ export default function DashboardScreen() {
     );
   }
 
+  const directive = activeProject.dailyDirective;
+  const isComplete = directive?.status === 'complete';
+  const allStepsDone = directive?.steps.every(s => s.done) ?? false;
+  const stepsCompleted = directive?.steps.filter(s => s.done).length ?? 0;
+  const totalSteps = directive?.steps.length ?? 0;
+  const stepProgress = totalSteps > 0 ? stepsCompleted / totalSteps : 0;
+
+  const bnCategory = currentBottleneck?.category || 'traffic';
+  const bnColor = BOTTLENECK_COLORS[bnCategory] || '#3B82F6';
+  const bnLabel = BOTTLENECK_LABELS[bnCategory] || 'Traffic';
   const activeProjects = projects.filter(p => p.status === 'active');
 
-  const handleSwitchProject = (projectId: string) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    switchProject(projectId);
-    setIsProjectMenuOpen(false);
-  };
-
-  const handleCompleteDirective = () => {
-    if (!activeProject) return;
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    completeDailyDirective(activeProject.id);
-    setShowDirectiveComplete(true);
-    setTimeout(() => setShowDirectiveComplete(false), 2000);
-  };
-
-  const handleProjectAction = (action: 'archive' | 'delete', projectId: string) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    if (action === 'archive') {
-      archiveProject(projectId);
-    } else {
-      deleteProject(projectId);
-    }
-    setIsProjectActionsOpen(false);
-    setSelectedProjectForActions(null);
-  };
-
-  const handleOpenForge = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    router.push('/advisor' as never);
-  };
-
-  const handleGenerateDailyTask = () => {
-    if (!activeProject) return;
-    
-    const hasMetrics = metrics.length > 0;
-    const hasAdvisorDirective = !!activeProject.advisorDirective;
-    
-    if (!hasMetrics && !hasAdvisorDirective) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-      setMissingConditionMessage('Go to Forge, log your metrics, and get guidance from Skyforge first.');
-      setShowMissingCondition(true);
-      setTimeout(() => setShowMissingCondition(false), 4000);
-      return;
-    }
-    
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    
-    let directive: DailyDirective;
-    
-    if (hasAdvisorDirective && activeProject.advisorDirective) {
-      directive = {
-        id: Date.now().toString(),
-        title: activeProject.advisorDirective.title,
-        description: activeProject.advisorDirective.description,
-        reason: activeProject.advisorDirective.reason,
-        estimatedTime: activeProject.advisorDirective.estimatedTime,
-        status: 'pending',
-        createdAt: new Date().toISOString(),
-        objective: activeProject.advisorDirective.title,
-        steps: [{ order: 1, action: activeProject.advisorDirective.description, done: false }],
-        timeboxMinutes: 30,
-        successMetric: 'Task completed as described',
-        blockers: [],
-        countermoves: [],
-        modeTag: activeProject.focusMode === 'manual' ? (activeProject.manualFocusArea || 'general') : (activeProject.bottleneck || 'general'),
-        linkedAssets: [],
-      };
-    } else {
-      const focus = activeProject.focusMode === 'manual' 
-        ? activeProject.manualFocusArea || 'leads'
-        : activeProject.bottleneck || 'leads';
-      const focusData = getDirectiveForFocus(focus);
-      
-      directive = {
-        id: Date.now().toString(),
-        title: focusData.title,
-        description: focusData.description,
-        reason: focusData.reason,
-        estimatedTime: focusData.estimatedTime,
-        status: 'pending',
-        createdAt: new Date().toISOString(),
-        objective: focusData.title,
-        steps: [{ order: 1, action: focusData.description, done: false }],
-        timeboxMinutes: 30,
-        successMetric: 'Task completed',
-        blockers: [],
-        countermoves: [],
-        modeTag: focus,
-        linkedAssets: [],
-      };
-    }
-    
-    updateDailyDirective({ projectId: activeProject.id, directive });
-  };
-
-  const getDirectiveForFocus = (focus: string) => {
-    const directives: Record<string, { title: string; description: string; reason: string; estimatedTime: string }> = {
-      leads: {
-        title: 'Record 1 short-form video addressing a pain point',
-        description: 'Create a 30-60 second video that speaks directly to your ideal customer\'s biggest frustration.',
-        reason: 'Your main bottleneck is lead generation. This task directly increases your visibility.',
-        estimatedTime: '20-30 minutes',
-      },
-      content: {
-        title: 'Write and schedule 3 social posts',
-        description: 'Create 3 value-driven posts: 1 educational tip, 1 success story, and 1 behind-the-scenes look.',
-        reason: 'Consistent content builds trust and keeps you top-of-mind with your audience.',
-        estimatedTime: '30-45 minutes',
-      },
-      outreach: {
-        title: 'Send 10 personalized DMs to potential clients',
-        description: 'Identify 10 people who fit your ideal customer profile and send them a genuine message.',
-        reason: 'Direct outreach is the fastest path to new conversations and opportunities.',
-        estimatedTime: '30-40 minutes',
-      },
-      sales: {
-        title: 'Follow up with 5 warm leads',
-        description: 'Reach out to people who showed interest but haven\'t bought yet.',
-        reason: 'Most sales happen after multiple touchpoints. Following up closes deals.',
-        estimatedTime: '20-30 minutes',
-      },
-    };
-    return directives[focus] || directives.leads;
+  const getStreakMessage = () => {
+    const n = completionStreak;
+    const s = n === 1 ? '' : 's';
+    const msg = STREAK_MESSAGES[Math.min(n - 1, STREAK_MESSAGES.length - 1)] || STREAK_MESSAGES[0];
+    return msg.replace('{n}', String(n)).replace('{s}', s);
   };
 
   return (
     <View style={styles.container}>
-      <BrandWatermark opacity={0.025} size={280} position="center" />
-      
       <View style={styles.projectBar}>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.projectSelector}
           onPress={() => setIsProjectMenuOpen(true)}
         >
-          <View style={styles.projectSelectorContent}>
-            <Text style={styles.projectSelectorLabel}>Active Project</Text>
-            <View style={styles.projectNameRow}>
-              <Text style={styles.projectName} numberOfLines={1}>
-                {activeProject?.name || 'Select Project'}
-              </Text>
-              <ChevronDown size={16} color={Colors.textSecondary} />
-            </View>
-          </View>
+          <Text style={styles.projectName} numberOfLines={1}>{activeProject.name}</Text>
+          <ChevronDown size={14} color={Colors.textMuted} />
         </TouchableOpacity>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.newProjectButton}
           onPress={() => router.push('/onboarding' as never)}
         >
-          <Plus size={20} color={Colors.accent} />
+          <Plus size={18} color={Colors.accent} />
         </TouchableOpacity>
       </View>
 
-      <ScrollView 
-        style={styles.scrollView} 
+      <ScrollView
+        style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        <Animated.View style={[
-          styles.content, 
-          { 
-            opacity: fadeAnim,
-            transform: [{ scale: scaleAnim }]
-          }
-        ]}>
-          <TouchableOpacity
-            style={styles.forgeButton}
-            onPress={handleOpenForge}
-            activeOpacity={0.9}
-          >
-            <LinearGradient
-              colors={[Colors.brandGradient.start, Colors.brandGradient.middle, Colors.brandGradient.end]}
-              style={styles.forgeButtonGradient}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-            >
-              <View style={styles.forgeIconContainer}>
-                <BrandMicroIcon size={28} color={Colors.text} />
+        <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
+          <View style={styles.bottleneckHero}>
+            <View style={styles.bottleneckHeroTop}>
+              <Text style={styles.heroLabel}>FIX TODAY</Text>
+              <View style={styles.streakPill}>
+                <Flame size={12} color={executionStats.streak > 0 ? '#F97316' : Colors.textMuted} />
+                <Text style={[styles.streakText, executionStats.streak > 0 && { color: '#F97316' }]}>
+                  {executionStats.streak}d
+                </Text>
               </View>
-              <View style={styles.forgeTextContainer}>
-                <Text style={styles.forgeButtonTitle}>Forge</Text>
-                <Text style={styles.forgeButtonSubtitle}>Open Skyforge Advisor</Text>
-              </View>
-              <Sparkles size={24} color="rgba(255,255,255,0.6)" style={styles.forgeSparkle} />
-            </LinearGradient>
-          </TouchableOpacity>
-
-          <ExecutionKernelWidget
-            bottleneck={currentBottleneck}
-            stats={executionStats}
-          />
-
-          <View style={[styles.directiveSection, { marginTop: 20 }]}>
-            <View style={styles.directiveSectionHeader}>
-              <BrandMicroIcon size={16} color={Colors.accent} />
-              <Text style={styles.directiveSectionTitle}>Today's Task</Text>
             </View>
 
-            {activeProject?.dailyDirective ? (
-              <LinearGradient
-                colors={[Colors.tertiary, Colors.secondary]}
-                style={styles.directiveCard}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-              >
-                <View style={styles.directiveHeader}>
-                  <View style={styles.directiveBadge}>
-                    <Zap size={12} color={Colors.primary} />
-                    <Text style={styles.directiveBadgeText}>Daily Directive</Text>
-                  </View>
-                  {activeProject.dailyDirective.status === 'complete' && (
-                    <View style={styles.completedBadge}>
-                      <CheckCircle2 size={14} color={Colors.success} />
-                      <Text style={styles.completedBadgeText}>Done</Text>
-                    </View>
-                  )}
+            <View style={styles.bottleneckRow}>
+              <View style={[styles.bottleneckDot, { backgroundColor: bnColor }]} />
+              <Text style={[styles.bottleneckName, { color: bnColor }]}>{bnLabel}</Text>
+              {currentBottleneck && (
+                <View style={[styles.confidencePill, { borderColor: bnColor + '40' }]}>
+                  <Text style={[styles.confidenceText, { color: bnColor }]}>{currentBottleneck.confidence}%</Text>
                 </View>
-                
-                <Text style={styles.directiveTitle}>{activeProject.dailyDirective.title}</Text>
-                <Text style={styles.directiveDescription}>{activeProject.dailyDirective.description}</Text>
-                
-                <View style={styles.directiveMeta}>
-                  <View style={styles.directiveReason}>
-                    <Text style={styles.directiveReasonLabel}>Why:</Text>
-                    <Text style={styles.directiveReasonText}>{activeProject.dailyDirective.reason}</Text>
-                  </View>
-                  <View style={styles.directiveTime}>
-                    <Clock size={14} color={Colors.textMuted} />
-                    <Text style={styles.directiveTimeText}>{activeProject.dailyDirective.estimatedTime}</Text>
-                  </View>
-                </View>
+              )}
+            </View>
 
-                {activeProject.dailyDirective.status !== 'complete' && (
-                  <TouchableOpacity 
-                    style={styles.completeButton}
-                    onPress={handleCompleteDirective}
-                  >
-                    <CheckCircle2 size={18} color={Colors.primary} />
-                    <Text style={styles.completeButtonText}>Mark as Done</Text>
-                  </TouchableOpacity>
-                )}
+            {currentBottleneck && (
+              <Text style={styles.bottleneckReasoning} numberOfLines={2}>
+                {currentBottleneck.reasoning}
+              </Text>
+            )}
 
-                {showDirectiveComplete && (
-                  <View style={styles.celebrationOverlay}>
-                    <Text style={styles.celebrationText}>Great work! Keep the momentum going.</Text>
-                  </View>
-                )}
-              </LinearGradient>
-            ) : (
-              <View style={styles.emptyDirective}>
-                <Sparkles size={32} color={Colors.textMuted} />
-                <Text style={styles.emptyDirectiveTitle}>No directive yet</Text>
-                <Text style={styles.emptyDirectiveText}>
-                  Log metrics in Forge and get guidance first
+            <View style={styles.statsRow}>
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>{executionStats.consistencyScore}</Text>
+                <Text style={styles.statLabel}>Score</Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>{executionStats.weeklyCompletionPct}%</Text>
+                <Text style={styles.statLabel}>Weekly</Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>
+                  {executionStats.revenuePerDirective !== null ? executionStats.revenuePerDirective.toFixed(1) : '—'}
                 </Text>
-                
-                {showMissingCondition && (
-                  <View style={styles.missingConditionBanner}>
-                    <Text style={styles.missingConditionText}>{missingConditionMessage}</Text>
-                  </View>
-                )}
-                
-                <TouchableOpacity 
-                  style={styles.generateTaskButton}
-                  onPress={handleGenerateDailyTask}
+                <Text style={styles.statLabel}>Rev/Task</Text>
+              </View>
+            </View>
+          </View>
+
+          {directive && !isComplete ? (
+            <View style={styles.directiveCard}>
+              <View style={styles.directiveTop}>
+                <View style={styles.directiveBadge}>
+                  <Zap size={12} color={Colors.primary} />
+                  <Text style={styles.directiveBadgeText}>Daily Directive</Text>
+                </View>
+                <View style={styles.timeboxPill}>
+                  <Clock size={12} color={Colors.textMuted} />
+                  <Text style={styles.timeboxText}>{directive.timeboxMinutes}m</Text>
+                </View>
+              </View>
+
+              <Text style={styles.directiveTitle}>{directive.title}</Text>
+
+              <View style={styles.objectiveRow}>
+                <Target size={13} color={Colors.accent} />
+                <Text style={styles.objectiveText}>{directive.successMetric}</Text>
+              </View>
+
+              <View style={styles.stepsContainer}>
+                {directive.steps.map((s) => (
+                  <TouchableOpacity
+                    key={s.order}
+                    style={styles.stepRow}
+                    onPress={() => handleToggleStep(s.order)}
+                    activeOpacity={0.7}
+                  >
+                    {s.done ? (
+                      <CheckCircle2 size={20} color={Colors.accent} />
+                    ) : (
+                      <Circle size={20} color={Colors.border} />
+                    )}
+                    <Text style={[styles.stepText, s.done && styles.stepTextDone]}>{s.action}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <View style={styles.progressSection}>
+                <View style={styles.progressTrack}>
+                  <Animated.View
+                    style={[
+                      styles.progressFill,
+                      { width: `${Math.max(stepProgress * 100, 2)}%` },
+                    ]}
+                  />
+                </View>
+                <Text style={styles.progressText}>{stepsCompleted}/{totalSteps} steps</Text>
+              </View>
+
+              <TouchableOpacity
+                style={[styles.completeButton, !allStepsDone && styles.completeButtonMuted]}
+                onPress={handleCompleteDirective}
+                activeOpacity={0.8}
+              >
+                <LinearGradient
+                  colors={allStepsDone ? [Colors.accent, Colors.accentDark] : [Colors.tertiary, Colors.tertiary]}
+                  style={styles.completeButtonGradient}
+                >
+                  <CheckCircle2 size={18} color={allStepsDone ? Colors.primary : Colors.textMuted} />
+                  <Text style={[styles.completeButtonText, !allStepsDone && { color: Colors.textMuted }]}>
+                    Complete Directive
+                  </Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+          ) : isComplete ? (
+            <View style={styles.completedCard}>
+              <CheckCircle2 size={32} color={Colors.accent} />
+              <Text style={styles.completedTitle}>Directive Complete</Text>
+              <Text style={styles.completedSubtitle}>{directive?.title}</Text>
+
+              <TouchableOpacity style={styles.forgeNextButton} onPress={() => router.push('/advisor' as never)}>
+                <Zap size={16} color={Colors.primary} />
+                <Text style={styles.forgeNextText}>Get Next Directive from Forge</Text>
+                <ChevronRight size={16} color={Colors.primary} />
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.generateButton} onPress={handleGenerateNew}>
+                <TrendingUp size={14} color={Colors.accent} />
+                <Text style={styles.generateText}>Auto-generate new task</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={styles.emptyDirective}>
+              <Zap size={28} color={Colors.textMuted} />
+              <Text style={styles.emptyTitle}>No directive yet</Text>
+              <Text style={styles.emptySubtitle}>
+                Generate a task based on your bottleneck, or visit Forge for personalized guidance.
+              </Text>
+
+              <TouchableOpacity style={styles.primaryActionButton} onPress={handleGenerateNew}>
+                <LinearGradient
+                  colors={[Colors.accent, Colors.accentDark]}
+                  style={styles.primaryActionGradient}
                 >
                   <Zap size={18} color={Colors.primary} />
-                  <Text style={styles.generateTaskButtonText}>Generate Daily Task</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-          </View>
+                  <Text style={styles.primaryActionText}>Generate Daily Task</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.secondaryActionButton}
+                onPress={() => router.push('/advisor' as never)}
+              >
+                <BrandMicroIcon size={14} color={Colors.accent} />
+                <Text style={styles.secondaryActionText}>Open Forge Advisor</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </Animated.View>
       </ScrollView>
 
-      <Modal
-        visible={isProjectMenuOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setIsProjectMenuOpen(false)}
-      >
-        <TouchableOpacity 
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setIsProjectMenuOpen(false)}
-        >
+      {showCompletion && (
+        <Animated.View style={[styles.celebrationOverlay, { opacity: celebrateAnim }]}>
+          <Animated.View style={[styles.celebrationContent, { transform: [{ scale: celebrateScale }] }]}>
+            <Flame size={40} color="#F97316" />
+            <Text style={styles.celebrationTitle}>
+              {getStreakMessage()}
+            </Text>
+            <Text style={styles.celebrationScore}>
+              Consistency: {executionStats.consistencyScore}/100
+            </Text>
+          </Animated.View>
+        </Animated.View>
+      )}
+
+      <Modal visible={isProjectMenuOpen} transparent animationType="fade" onRequestClose={() => setIsProjectMenuOpen(false)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setIsProjectMenuOpen(false)}>
           <View style={styles.projectMenu}>
             <View style={styles.projectMenuHeader}>
-              <Text style={styles.projectMenuTitle}>Your Projects</Text>
+              <Text style={styles.projectMenuTitle}>Projects</Text>
               <TouchableOpacity onPress={() => setIsProjectMenuOpen(false)}>
                 <X size={20} color={Colors.textSecondary} />
               </TouchableOpacity>
@@ -381,23 +387,18 @@ export default function DashboardScreen() {
               {activeProjects.map((project) => (
                 <TouchableOpacity
                   key={project.id}
-                  style={[
-                    styles.projectItem,
-                    project.id === activeProjectId && styles.projectItemActive
-                  ]}
+                  style={[styles.projectItem, project.id === activeProjectId && styles.projectItemActive]}
                   onPress={() => handleSwitchProject(project.id)}
                 >
                   <View style={styles.projectItemContent}>
-                    <Text style={[
-                      styles.projectItemName,
-                      project.id === activeProjectId && styles.projectItemNameActive
-                    ]}>{project.name}</Text>
+                    <Text style={[styles.projectItemName, project.id === activeProjectId && styles.projectItemNameActive]}>
+                      {project.name}
+                    </Text>
                     <Text style={styles.projectItemType}>{project.businessType}</Text>
                   </View>
                   <TouchableOpacity
                     style={styles.projectActionsButton}
-                    onPress={(e) => {
-                      e.stopPropagation();
+                    onPress={() => {
                       setSelectedProjectForActions(project.id);
                       setIsProjectActionsOpen(true);
                     }}
@@ -409,10 +410,7 @@ export default function DashboardScreen() {
             </ScrollView>
             <TouchableOpacity
               style={styles.newProjectMenuItem}
-              onPress={() => {
-                setIsProjectMenuOpen(false);
-                router.push('/onboarding' as never);
-              }}
+              onPress={() => { setIsProjectMenuOpen(false); router.push('/onboarding' as never); }}
             >
               <Plus size={18} color={Colors.accent} />
               <Text style={styles.newProjectMenuText}>New Project</Text>
@@ -421,17 +419,8 @@ export default function DashboardScreen() {
         </TouchableOpacity>
       </Modal>
 
-      <Modal
-        visible={isProjectActionsOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setIsProjectActionsOpen(false)}
-      >
-        <TouchableOpacity 
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setIsProjectActionsOpen(false)}
-        >
+      <Modal visible={isProjectActionsOpen} transparent animationType="fade" onRequestClose={() => setIsProjectActionsOpen(false)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setIsProjectActionsOpen(false)}>
           <View style={styles.actionsMenu}>
             <TouchableOpacity
               style={styles.actionItem}
@@ -473,42 +462,26 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 10,
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
-    gap: 12,
+    gap: 10,
   },
   projectSelector: {
     flex: 1,
-    backgroundColor: Colors.secondary,
-    borderRadius: 10,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  projectSelectorContent: {
-    gap: 2,
-  },
-  projectSelectorLabel: {
-    fontSize: 11,
-    color: Colors.textMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  projectNameRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: 6,
   },
   projectName: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '600' as const,
     color: Colors.text,
     flex: 1,
   },
   newProjectButton: {
-    width: 44,
-    height: 44,
+    width: 36,
+    height: 36,
     borderRadius: 10,
     backgroundColor: Colors.tertiary,
     justifyContent: 'center',
@@ -523,180 +496,267 @@ const styles = StyleSheet.create({
     padding: 16,
     paddingBottom: 32,
   },
-  content: {
-    flex: 1,
-  },
-  forgeButton: {
-    marginBottom: 24,
+  bottleneckHero: {
+    backgroundColor: Colors.secondary,
     borderRadius: 16,
-    overflow: 'hidden',
-    shadowColor: Colors.brandGradient.start,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.4,
-    shadowRadius: 20,
-    elevation: 12,
-  },
-  forgeButtonGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
     padding: 20,
-  },
-  forgeIconContainer: {
-    width: 56,
-    height: 56,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 16,
-  },
-  forgeTextContainer: {
-    flex: 1,
-  },
-  forgeButtonTitle: {
-    fontSize: 24,
-    fontWeight: '800' as const,
-    color: Colors.text,
-    letterSpacing: 2,
-  },
-  forgeButtonSubtitle: {
-    fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.7)',
-    marginTop: 2,
-  },
-  forgeSparkle: {
-    opacity: 0.6,
-  },
-  directiveSection: {
-    marginBottom: 24,
-  },
-  directiveSectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
     marginBottom: 16,
-  },
-  directiveSectionTitle: {
-    fontSize: 16,
-    fontWeight: '600' as const,
-    color: Colors.text,
-  },
-  directiveCard: {
-    borderRadius: 16,
-    padding: 20,
     borderWidth: 1,
     borderColor: Colors.border,
   },
-  directiveHeader: {
+  bottleneckHeroTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 12,
   },
+  heroLabel: {
+    fontSize: 11,
+    fontWeight: '800' as const,
+    color: Colors.textMuted,
+    letterSpacing: 2,
+  },
+  streakPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: Colors.tertiary,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 10,
+  },
+  streakText: {
+    fontSize: 13,
+    fontWeight: '700' as const,
+    color: Colors.textMuted,
+  },
+  bottleneckRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  bottleneckDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  bottleneckName: {
+    fontSize: 24,
+    fontWeight: '800' as const,
+  },
+  confidencePill: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    marginLeft: 4,
+  },
+  confidenceText: {
+    fontSize: 11,
+    fontWeight: '600' as const,
+  },
+  bottleneckReasoning: {
+    fontSize: 13,
+    color: Colors.textMuted,
+    lineHeight: 18,
+    marginBottom: 16,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-around',
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+  },
+  statItem: {
+    alignItems: 'center',
+  },
+  statValue: {
+    fontSize: 18,
+    fontWeight: '700' as const,
+    color: Colors.text,
+  },
+  statLabel: {
+    fontSize: 10,
+    color: Colors.textMuted,
+    textTransform: 'uppercase' as const,
+    letterSpacing: 0.5,
+    marginTop: 2,
+  },
+  statDivider: {
+    width: 1,
+    height: 28,
+    backgroundColor: Colors.border,
+  },
+  directiveCard: {
+    backgroundColor: Colors.secondary,
+    borderRadius: 16,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  directiveTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
   directiveBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 5,
     backgroundColor: Colors.accent,
     paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 12,
+    borderRadius: 8,
   },
   directiveBadgeText: {
     fontSize: 11,
     fontWeight: '700' as const,
     color: Colors.primary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    textTransform: 'uppercase' as const,
+    letterSpacing: 0.3,
   },
-  completedBadge: {
+  timeboxPill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: 'rgba(0, 212, 170, 0.2)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
   },
-  completedBadgeText: {
-    fontSize: 11,
-    fontWeight: '600' as const,
-    color: Colors.success,
+  timeboxText: {
+    fontSize: 12,
+    color: Colors.textMuted,
   },
   directiveTitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '700' as const,
     color: Colors.text,
-    marginBottom: 8,
-    lineHeight: 24,
+    marginBottom: 10,
+    lineHeight: 26,
   },
-  directiveDescription: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-    lineHeight: 20,
-    marginBottom: 16,
-  },
-  directiveMeta: {
-    gap: 12,
-    marginBottom: 16,
-  },
-  directiveReason: {
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderRadius: 8,
-    padding: 12,
-  },
-  directiveReasonLabel: {
-    fontSize: 11,
-    fontWeight: '600' as const,
-    color: Colors.textMuted,
-    textTransform: 'uppercase',
-    marginBottom: 4,
-  },
-  directiveReasonText: {
-    fontSize: 13,
-    color: Colors.textSecondary,
-    lineHeight: 18,
-  },
-  directiveTime: {
+  objectiveRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+    marginBottom: 18,
+    backgroundColor: Colors.accent + '10',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
   },
-  directiveTimeText: {
+  objectiveText: {
     fontSize: 13,
+    color: Colors.accent,
+    fontWeight: '500' as const,
+  },
+  stepsContainer: {
+    gap: 10,
+    marginBottom: 18,
+  },
+  stepRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 4,
+  },
+  stepText: {
+    flex: 1,
+    fontSize: 15,
+    color: Colors.text,
+    lineHeight: 20,
+  },
+  stepTextDone: {
     color: Colors.textMuted,
+    textDecorationLine: 'line-through',
+  },
+  progressSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 18,
+  },
+  progressTrack: {
+    flex: 1,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: Colors.tertiary,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: Colors.accent,
+  },
+  progressText: {
+    fontSize: 12,
+    color: Colors.textMuted,
+    fontWeight: '500' as const,
   },
   completeButton: {
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  completeButtonMuted: {
+    opacity: 0.6,
+  },
+  completeButtonGradient: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    backgroundColor: Colors.accent,
     paddingVertical: 14,
-    borderRadius: 10,
   },
   completeButtonText: {
     fontSize: 15,
     fontWeight: '600' as const,
     color: Colors.primary,
   },
-  celebrationOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 212, 170, 0.95)',
+  completedCard: {
+    backgroundColor: Colors.secondary,
     borderRadius: 16,
-    justifyContent: 'center',
+    padding: 28,
     alignItems: 'center',
-    padding: 20,
+    borderWidth: 1,
+    borderColor: Colors.accent + '30',
   },
-  celebrationText: {
+  completedTitle: {
     fontSize: 18,
     fontWeight: '700' as const,
-    color: Colors.primary,
+    color: Colors.accent,
+    marginTop: 12,
+  },
+  completedSubtitle: {
+    fontSize: 14,
+    color: Colors.textMuted,
+    marginTop: 4,
+    marginBottom: 24,
     textAlign: 'center',
+  },
+  forgeNextButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: Colors.accent,
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    marginBottom: 12,
+  },
+  forgeNextText: {
+    fontSize: 15,
+    fontWeight: '600' as const,
+    color: Colors.primary,
+  },
+  generateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 10,
+  },
+  generateText: {
+    fontSize: 14,
+    color: Colors.accent,
   },
   emptyDirective: {
     backgroundColor: Colors.secondary,
@@ -706,48 +766,71 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.border,
   },
-  emptyDirectiveTitle: {
-    fontSize: 16,
+  emptyTitle: {
+    fontSize: 17,
     fontWeight: '600' as const,
     color: Colors.text,
-    marginTop: 16,
-    marginBottom: 8,
+    marginTop: 14,
   },
-  emptyDirectiveText: {
+  emptySubtitle: {
     fontSize: 14,
     color: Colors.textMuted,
     textAlign: 'center',
+    marginTop: 6,
+    marginBottom: 24,
+    lineHeight: 20,
   },
-  missingConditionBanner: {
-    backgroundColor: Colors.warning + '20',
-    borderRadius: 8,
-    padding: 12,
-    marginTop: 16,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: Colors.warning + '40',
+  primaryActionButton: {
+    width: '100%',
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginBottom: 12,
   },
-  missingConditionText: {
-    fontSize: 13,
-    color: Colors.warning,
-    textAlign: 'center',
-    lineHeight: 18,
-  },
-  generateTaskButton: {
+  primaryActionGradient: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    backgroundColor: Colors.accent,
     paddingVertical: 14,
-    paddingHorizontal: 24,
-    borderRadius: 10,
-    marginTop: 16,
   },
-  generateTaskButtonText: {
+  primaryActionText: {
     fontSize: 15,
     fontWeight: '600' as const,
     color: Colors.primary,
+  },
+  secondaryActionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 10,
+  },
+  secondaryActionText: {
+    fontSize: 14,
+    color: Colors.accent,
+  },
+  celebrationOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(10, 10, 15, 0.92)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 100,
+  },
+  celebrationContent: {
+    alignItems: 'center',
+    padding: 40,
+  },
+  celebrationTitle: {
+    fontSize: 22,
+    fontWeight: '800' as const,
+    color: '#F97316',
+    textAlign: 'center',
+    marginTop: 16,
+    lineHeight: 28,
+  },
+  celebrationScore: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    marginTop: 8,
   },
   modalOverlay: {
     flex: 1,

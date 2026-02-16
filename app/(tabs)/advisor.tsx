@@ -10,20 +10,27 @@ import {
   Platform,
   ActivityIndicator,
 } from 'react-native';
-import { Send, Sparkles, Copy, Check, Zap } from 'lucide-react-native';
+import { Send, Sparkles, Copy, Check, Zap, Target, ArrowRight } from 'lucide-react-native';
 import { useRorkAgent } from '@rork-ai/toolkit-sdk';
 import { useBusiness } from '@/store/BusinessContext';
 import { getSystemPrompt } from '@/constants/systemPrompt';
 import Colors from '@/constants/colors';
 import * as Haptics from 'expo-haptics';
-import { BrandWatermark, BrandMicroIcon } from '@/components/brand';
-import { LinearGradient } from 'expo-linear-gradient';
+import { BrandMicroIcon } from '@/components/brand';
+import { DailyDirective } from '@/types/business';
 
 export default function AdvisorScreen() {
   const [input, setInput] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [savedDirective, setSavedDirective] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
-  const { activeProject, metrics, updateAdvisorDirective } = useBusiness();
+  const {
+    activeProject,
+    metrics,
+    updateAdvisorDirective,
+    updateDailyDirective,
+    currentBottleneck,
+  } = useBusiness();
 
   const systemPrompt = getSystemPrompt(activeProject, metrics);
 
@@ -31,9 +38,13 @@ export default function AdvisorScreen() {
     tools: {},
   });
 
-  const currentFocus = activeProject?.focusMode === 'manual' 
-    ? activeProject.manualFocusArea 
+  const currentFocus = activeProject?.focusMode === 'manual'
+    ? activeProject.manualFocusArea
     : activeProject?.bottleneck;
+
+  const bnLabel = currentBottleneck?.category
+    ? currentBottleneck.category.charAt(0).toUpperCase() + currentBottleneck.category.slice(1)
+    : currentFocus || 'General';
 
   const initializeWelcome = useCallback(() => {
     if (messages.length === 0 && activeProject) {
@@ -44,13 +55,13 @@ export default function AdvisorScreen() {
           parts: [
             {
               type: 'text',
-              text: `I am SKYFORGE, your strategic business advisor. I have analyzed the "${activeProject.name}" project.\n\nYour current focus is ${currentFocus}. Tell me what is happening in your business right now, and I will give you the exact next move.`,
+              text: `SKYFORGE ready. Analyzing "${activeProject.name}".\n\nCurrent bottleneck: ${bnLabel}${currentBottleneck ? ` (${currentBottleneck.confidence}% confidence)` : ''}.\n\nTell me what is happening — I will give you the exact next move.`,
             },
           ],
         },
       ]);
     }
-  }, [messages.length, activeProject, currentFocus, setMessages]);
+  }, [messages.length, activeProject, bnLabel, currentBottleneck, setMessages]);
 
   useEffect(() => {
     initializeWelcome();
@@ -65,11 +76,12 @@ export default function AdvisorScreen() {
           parts: [
             {
               type: 'text',
-              text: `I am SKYFORGE, your strategic business advisor. I have analyzed the "${activeProject.name}" project.\n\nYour current focus is ${currentFocus}. Tell me what is happening in your business right now, and I will give you the exact next move.`,
+              text: `SKYFORGE ready. Analyzing "${activeProject.name}".\n\nCurrent bottleneck: ${bnLabel}${currentBottleneck ? ` (${currentBottleneck.confidence}% confidence)` : ''}.\n\nTell me what is happening — I will give you the exact next move.`,
             },
           ],
         },
       ]);
+      setSavedDirective(false);
     }
   }, [activeProject?.id]);
 
@@ -78,7 +90,7 @@ export default function AdvisorScreen() {
     let title = '';
     let description = '';
     let reason = '';
-    
+
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i].trim();
       if (line.toLowerCase().includes('task:') || line.toLowerCase().includes('action:') || line.toLowerCase().includes('do this:')) {
@@ -87,18 +99,18 @@ export default function AdvisorScreen() {
         reason = line.replace(/^(why:|reason:)/i, '').trim();
       }
     }
-    
+
     if (!title && lines.length > 0) {
       const firstSentence = text.split(/[.!?]/)[0];
       if (firstSentence.length < 100) {
         title = firstSentence.trim();
       }
     }
-    
+
     if (title) {
       description = text.substring(0, 200).trim();
       if (text.length > 200) description += '...';
-      
+
       return {
         id: Date.now().toString(),
         title: title.substring(0, 100),
@@ -108,24 +120,25 @@ export default function AdvisorScreen() {
         createdAt: new Date().toISOString(),
       };
     }
-    
+
     return null;
   };
 
   const handleSend = async () => {
     if (!input.trim() || !activeProject) return;
-    
+
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const message = input.trim();
     setInput('');
-    
+    setSavedDirective(false);
+
     await sendMessage({
       text: `[System Context: ${systemPrompt}]\n\nUser: ${message}`,
     });
-    
+
     setTimeout(() => {
       scrollViewRef.current?.scrollToEnd({ animated: true });
-      
+
       const lastAssistantMessage = messages.filter(m => m.role === 'assistant').pop();
       if (lastAssistantMessage) {
         const textPart = lastAssistantMessage.parts.find(p => p.type === 'text');
@@ -133,11 +146,46 @@ export default function AdvisorScreen() {
           const directive = extractDirectiveFromResponse(textPart.text);
           if (directive) {
             updateAdvisorDirective({ projectId: activeProject.id, directive });
-            console.log('Advisor directive stored:', directive.title);
+            console.log('[Advisor] Directive extracted:', directive.title);
           }
         }
       }
     }, 500);
+  };
+
+  const handleSetAsDirective = (text: string) => {
+    if (!activeProject) return;
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+    const extracted = extractDirectiveFromResponse(text);
+    const title = extracted?.title || text.split(/[.!?\n]/)[0].substring(0, 80);
+    const description = extracted?.description || text.substring(0, 200);
+
+    const directive: DailyDirective = {
+      id: Date.now().toString(),
+      title,
+      description,
+      reason: extracted?.reason || 'From Skyforge Advisor analysis.',
+      estimatedTime: '20-30 minutes',
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+      objective: title,
+      steps: [
+        { order: 1, action: description.substring(0, 120), done: false },
+      ],
+      timeboxMinutes: 30,
+      successMetric: 'Task completed as described',
+      blockers: [],
+      countermoves: [],
+      modeTag: currentFocus || 'general',
+      linkedAssets: [],
+    };
+
+    updateDailyDirective({ projectId: activeProject.id, directive });
+    if (extracted) {
+      updateAdvisorDirective({ projectId: activeProject.id, directive: { ...extracted } });
+    }
+    setSavedDirective(true);
   };
 
   const handleCopy = async (text: string, id: string) => {
@@ -159,7 +207,7 @@ export default function AdvisorScreen() {
         <Sparkles size={48} color={Colors.textMuted} />
         <Text style={styles.emptyTitle}>No Project Selected</Text>
         <Text style={styles.emptyText}>
-          Select or create a project to start getting personalized guidance
+          Select or create a project to start getting guidance
         </Text>
       </View>
     );
@@ -171,8 +219,15 @@ export default function AdvisorScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       keyboardVerticalOffset={90}
     >
-      <BrandWatermark opacity={0.02} size={320} position="top" />
-      
+      {currentBottleneck && (
+        <View style={styles.bottleneckBar}>
+          <Target size={12} color={Colors.accent} />
+          <Text style={styles.bottleneckBarText}>
+            Bottleneck: {bnLabel} ({currentBottleneck.confidence}%)
+          </Text>
+        </View>
+      )}
+
       <ScrollView
         ref={scrollViewRef}
         style={styles.messagesContainer}
@@ -223,19 +278,14 @@ export default function AdvisorScreen() {
                           </Text>
                         </TouchableOpacity>
                         <TouchableOpacity
-                          style={styles.saveDirectiveButton}
-                          onPress={() => {
-                            if (activeProject) {
-                              const directive = extractDirectiveFromResponse(textContent);
-                              if (directive) {
-                                updateAdvisorDirective({ projectId: activeProject.id, directive });
-                                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                              }
-                            }
-                          }}
+                          style={styles.setDirectiveButton}
+                          onPress={() => handleSetAsDirective(textContent)}
                         >
-                          <Zap size={14} color={Colors.accent} />
-                          <Text style={styles.saveDirectiveText}>Save as Directive</Text>
+                          <Zap size={14} color={savedDirective ? Colors.textMuted : Colors.accent} />
+                          <Text style={[styles.setDirectiveText, savedDirective && { color: Colors.textMuted }]}>
+                            {savedDirective ? 'Set as Task' : 'Set as Daily Task'}
+                          </Text>
+                          {!savedDirective && <ArrowRight size={12} color={Colors.accent} />}
                         </TouchableOpacity>
                       </View>
                     ) : null}
@@ -257,12 +307,6 @@ export default function AdvisorScreen() {
       </ScrollView>
 
       <View style={styles.inputContainer}>
-        <LinearGradient
-          colors={[Colors.brandGradient.start + '15', 'transparent']}
-          style={styles.inputGlow}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-        />
         <View style={styles.inputWrapper}>
           <TextInput
             style={styles.input}
@@ -281,9 +325,6 @@ export default function AdvisorScreen() {
             <Send size={20} color={input.trim() ? Colors.primary : Colors.textMuted} />
           </TouchableOpacity>
         </View>
-        <Text style={styles.disclaimer}>
-          AI-powered advice for {activeProject.name}
-        </Text>
       </View>
     </KeyboardAvoidingView>
   );
@@ -313,6 +354,21 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     textAlign: 'center',
   },
+  bottleneckBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: Colors.secondary,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  bottleneckBarText: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    fontWeight: '500' as const,
+  },
   messagesContainer: {
     flex: 1,
   },
@@ -337,8 +393,6 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 4,
     borderWidth: 1,
     borderColor: Colors.border,
-    borderLeftWidth: 2,
-    borderLeftColor: Colors.brandGradient.start + '60',
   },
   assistantHeader: {
     flexDirection: 'row',
@@ -381,14 +435,19 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Colors.textMuted,
   },
-  saveDirectiveButton: {
+  setDirectiveButton: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
+    backgroundColor: Colors.accent + '12',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
   },
-  saveDirectiveText: {
+  setDirectiveText: {
     fontSize: 12,
     color: Colors.accent,
+    fontWeight: '500' as const,
   },
   typingIndicator: {
     flexDirection: 'row',
@@ -405,14 +464,6 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.secondary,
     borderTopWidth: 1,
     borderTopColor: Colors.border,
-    position: 'relative',
-  },
-  inputGlow: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 1,
   },
   inputWrapper: {
     flexDirection: 'row',
@@ -440,11 +491,5 @@ const styles = StyleSheet.create({
   },
   sendButtonDisabled: {
     backgroundColor: Colors.border,
-  },
-  disclaimer: {
-    fontSize: 11,
-    color: Colors.textMuted,
-    textAlign: 'center',
-    marginTop: 8,
   },
 });
