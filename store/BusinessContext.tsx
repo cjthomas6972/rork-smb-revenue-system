@@ -16,7 +16,14 @@ import {
   FocusMode,
   FocusArea,
   PrimaryProblem,
+  DirectiveCompletionLog,
+  BottleneckDiagnosis,
+  ExecutionStats,
 } from '@/types/business';
+import {
+  diagnoseBottleneck,
+  computeExecutionStats,
+} from '@/utils/executionEngine';
 
 const STORAGE_KEYS = {
   PROJECTS: 'skyforge_projects',
@@ -29,6 +36,7 @@ const STORAGE_KEYS = {
   MONTHLY_MILESTONE: 'skyforge_monthly_milestone',
   ONBOARDING_COMPLETE: 'skyforge_onboarding_complete',
   USER_SETTINGS: 'skyforge_user_settings',
+  COMPLETION_LOGS: 'skyforge_completion_logs',
 };
 
 const DEFAULT_USER_SETTINGS: UserSettings = {
@@ -102,6 +110,14 @@ export const [BusinessProvider, useBusiness] = createContextHook(() => {
     queryFn: async () => {
       const stored = await AsyncStorage.getItem(STORAGE_KEYS.MONTHLY_MILESTONE);
       return stored ? JSON.parse(stored) as MonthlyMilestone[] : [];
+    },
+  });
+
+  const completionLogsQuery = useQuery({
+    queryKey: ['completionLogs'],
+    queryFn: async () => {
+      const stored = await AsyncStorage.getItem(STORAGE_KEYS.COMPLETION_LOGS);
+      return stored ? JSON.parse(stored) as DirectiveCompletionLog[] : [];
     },
   });
 
@@ -273,21 +289,39 @@ export const [BusinessProvider, useBusiness] = createContextHook(() => {
   const completeDailyDirectiveMutation = useMutation({
     mutationFn: async (projectId: string) => {
       const current = projectsQuery.data || [];
+      const now = new Date().toISOString();
+      let completionLog: DirectiveCompletionLog | null = null;
+
       const updated = current.map(p => {
         if (p.id === projectId && p.dailyDirective) {
+          completionLog = {
+            directiveId: p.dailyDirective.id,
+            projectId,
+            completedAt: now,
+            title: p.dailyDirective.title,
+            modeTag: p.dailyDirective.modeTag || 'general',
+          };
           return { 
             ...p, 
             dailyDirective: { ...p.dailyDirective, status: 'complete' as const },
-            updatedAt: new Date().toISOString() 
+            updatedAt: now,
           };
         }
         return p;
       });
       await AsyncStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(updated));
-      return updated;
+
+      if (completionLog) {
+        const currentLogs = completionLogsQuery.data || [];
+        const updatedLogs = [...currentLogs, completionLog];
+        await AsyncStorage.setItem(STORAGE_KEYS.COMPLETION_LOGS, JSON.stringify(updatedLogs));
+        return { projects: updated, logs: updatedLogs };
+      }
+      return { projects: updated, logs: completionLogsQuery.data || [] };
     },
-    onSuccess: (projects) => {
+    onSuccess: ({ projects, logs }) => {
       queryClient.setQueryData(['projects'], projects);
+      queryClient.setQueryData(['completionLogs'], logs);
     },
   });
 
@@ -440,6 +474,20 @@ export const [BusinessProvider, useBusiness] = createContextHook(() => {
     },
   });
 
+  const completionLogs = completionLogsQuery.data ?? [];
+
+  const currentBottleneck = useMemo((): BottleneckDiagnosis | null => {
+    if (!activeProjectId) return null;
+    return diagnoseBottleneck(projectMetrics);
+  }, [projectMetrics, activeProjectId]);
+
+  const executionStats = useMemo((): ExecutionStats => {
+    if (!activeProjectId) {
+      return { streak: 0, weeklyCompletionPct: 0, consistencyScore: 0, revenuePerDirective: null, lastUpdated: new Date().toISOString() };
+    }
+    return computeExecutionStats(metricsQuery.data ?? [], completionLogs, activeProjectId);
+  }, [metricsQuery.data, completionLogs, activeProjectId]);
+
   const getCurrentFocus = useCallback((): string => {
     if (!activeProject) return 'leads';
     if (activeProject.focusMode === 'manual' && activeProject.manualFocusArea) {
@@ -449,108 +497,141 @@ export const [BusinessProvider, useBusiness] = createContextHook(() => {
   }, [activeProject]);
 
   const generateDailyDirective = useCallback((focus: string): DailyDirective => {
-    const directives: Record<string, DailyDirective> = {
+    const base = {
+      id: Date.now().toString(),
+      status: 'pending' as const,
+      createdAt: new Date().toISOString(),
+      blockers: [] as string[],
+      countermoves: [] as string[],
+      linkedAssets: [] as string[],
+    };
+
+    const templates: Record<string, Omit<DailyDirective, 'id' | 'status' | 'createdAt' | 'blockers' | 'countermoves' | 'linkedAssets'>> = {
       leads: {
-        id: Date.now().toString(),
         title: 'Record 1 short-form video addressing a pain point',
         description: 'Create a 30-60 second video that speaks directly to your ideal customer\'s biggest frustration. Use a hook that grabs attention in the first 3 seconds.',
         reason: 'Your main bottleneck is lead generation. This task directly increases your visibility and attracts potential customers.',
         estimatedTime: '20-30 minutes',
-        status: 'pending',
-        createdAt: new Date().toISOString(),
+        objective: 'Generate new inbound leads through short-form content',
+        steps: [{ order: 1, action: 'Pick a customer pain point', done: false }, { order: 2, action: 'Write a 3-second hook', done: false }, { order: 3, action: 'Record and post the video', done: false }],
+        timeboxMinutes: 25,
+        successMetric: '1 video published',
+        modeTag: 'leads',
       },
       content: {
-        id: Date.now().toString(),
         title: 'Write and schedule 3 social posts',
-        description: 'Create 3 value-driven posts: 1 educational tip, 1 customer success story or testimonial, and 1 behind-the-scenes look at your process.',
+        description: 'Create 3 value-driven posts: 1 educational tip, 1 customer success story, and 1 behind-the-scenes look.',
         reason: 'Consistent content builds trust and keeps you top-of-mind with your audience.',
         estimatedTime: '30-45 minutes',
-        status: 'pending',
-        createdAt: new Date().toISOString(),
+        objective: 'Build consistent content pipeline',
+        steps: [{ order: 1, action: 'Draft educational tip post', done: false }, { order: 2, action: 'Draft success story post', done: false }, { order: 3, action: 'Draft behind-the-scenes post', done: false }, { order: 4, action: 'Schedule all 3', done: false }],
+        timeboxMinutes: 40,
+        successMetric: '3 posts scheduled',
+        modeTag: 'content',
       },
       outreach: {
-        id: Date.now().toString(),
         title: 'Send 10 personalized DMs to potential clients',
-        description: 'Identify 10 people who fit your ideal customer profile and send them a genuine, non-salesy message. Start a conversation, don\'t pitch.',
+        description: 'Identify 10 people who fit your ideal customer profile and send them a genuine, non-salesy message.',
         reason: 'Direct outreach is the fastest path to new conversations and opportunities.',
         estimatedTime: '30-40 minutes',
-        status: 'pending',
-        createdAt: new Date().toISOString(),
+        objective: 'Start 10 new prospect conversations',
+        steps: [{ order: 1, action: 'Identify 10 prospects', done: false }, { order: 2, action: 'Personalize each message', done: false }, { order: 3, action: 'Send all 10 DMs', done: false }],
+        timeboxMinutes: 35,
+        successMetric: '10 DMs sent',
+        modeTag: 'outreach',
       },
       offer: {
-        id: Date.now().toString(),
         title: 'Refine your core offer statement',
-        description: 'Write out: Who you help, what specific result you deliver, and why you\'re the best choice. Keep it under 2 sentences.',
-        reason: 'A clear, compelling offer is the foundation of all your marketing. Get this right and everything else becomes easier.',
+        description: 'Write out: Who you help, what specific result you deliver, and why you\'re the best choice.',
+        reason: 'A clear, compelling offer is the foundation of all your marketing.',
         estimatedTime: '20-30 minutes',
-        status: 'pending',
-        createdAt: new Date().toISOString(),
+        objective: 'Sharpen offer clarity and positioning',
+        steps: [{ order: 1, action: 'Define target customer in one sentence', done: false }, { order: 2, action: 'State the result you deliver', done: false }, { order: 3, action: 'Add your unique differentiator', done: false }],
+        timeboxMinutes: 25,
+        successMetric: 'Offer statement written',
+        modeTag: 'offer',
       },
       pricing: {
-        id: Date.now().toString(),
         title: 'Review and test a new pricing angle',
-        description: 'Consider: package deals, payment plans, or value-based pricing. Pick one and draft a new pricing option to test.',
+        description: 'Consider: package deals, payment plans, or value-based pricing. Pick one and draft a new pricing option.',
         reason: 'Pricing directly impacts your revenue. Small changes can lead to significant gains.',
         estimatedTime: '15-25 minutes',
-        status: 'pending',
-        createdAt: new Date().toISOString(),
+        objective: 'Test a pricing variation to increase conversion',
+        steps: [{ order: 1, action: 'Review current pricing', done: false }, { order: 2, action: 'Draft one new pricing option', done: false }, { order: 3, action: 'Prepare to A/B test', done: false }],
+        timeboxMinutes: 20,
+        successMetric: 'New pricing option drafted',
+        modeTag: 'pricing',
       },
       conversion: {
-        id: Date.now().toString(),
         title: 'Optimize your booking or checkout flow',
-        description: 'Walk through your own process as a customer. Identify and remove any friction points. Make it easier to say yes.',
-        reason: 'You\'re getting traffic but losing people at the conversion step. Simplify and watch your numbers improve.',
+        description: 'Walk through your own process as a customer. Identify and remove any friction points.',
+        reason: 'You\'re getting traffic but losing people at the conversion step.',
         estimatedTime: '25-35 minutes',
-        status: 'pending',
-        createdAt: new Date().toISOString(),
+        objective: 'Reduce friction in the conversion funnel',
+        steps: [{ order: 1, action: 'Walk through your funnel as a customer', done: false }, { order: 2, action: 'Identify 3 friction points', done: false }, { order: 3, action: 'Fix at least 1', done: false }],
+        timeboxMinutes: 30,
+        successMetric: '1 friction point eliminated',
+        modeTag: 'conversion',
       },
       fulfillment: {
-        id: Date.now().toString(),
         title: 'Document one key process in your delivery',
-        description: 'Pick one recurring task in how you serve clients and write out the exact steps. This is the start of your operations playbook.',
+        description: 'Pick one recurring task in how you serve clients and write out the exact steps.',
         reason: 'Systematizing your delivery frees up time and ensures consistent quality.',
         estimatedTime: '20-30 minutes',
-        status: 'pending',
-        createdAt: new Date().toISOString(),
+        objective: 'Create one repeatable SOP',
+        steps: [{ order: 1, action: 'Pick a recurring task', done: false }, { order: 2, action: 'Write step-by-step instructions', done: false }, { order: 3, action: 'Save the document', done: false }],
+        timeboxMinutes: 25,
+        successMetric: '1 SOP documented',
+        modeTag: 'fulfillment',
       },
       'audience building': {
-        id: Date.now().toString(),
         title: 'Engage with 20 posts in your niche',
-        description: 'Find 20 posts from people in your industry or your ideal customers. Leave thoughtful comments that add value.',
-        reason: 'Building an audience starts with genuine engagement. This grows your visibility organically.',
+        description: 'Find 20 posts from people in your industry or your ideal customers. Leave thoughtful comments.',
+        reason: 'Building an audience starts with genuine engagement.',
         estimatedTime: '25-35 minutes',
-        status: 'pending',
-        createdAt: new Date().toISOString(),
+        objective: 'Increase organic visibility through engagement',
+        steps: [{ order: 1, action: 'Find 20 relevant posts', done: false }, { order: 2, action: 'Leave thoughtful comments on each', done: false }],
+        timeboxMinutes: 30,
+        successMetric: '20 comments posted',
+        modeTag: 'audience building',
       },
       'brand expansion': {
-        id: Date.now().toString(),
         title: 'Reach out to 3 potential collaboration partners',
-        description: 'Identify 3 complementary businesses or creators. Send them a message proposing a mutual benefit (guest post, co-promo, referral).',
+        description: 'Identify 3 complementary businesses or creators. Send a message proposing mutual benefit.',
         reason: 'Partnerships accelerate growth by tapping into established audiences.',
         estimatedTime: '20-30 minutes',
-        status: 'pending',
-        createdAt: new Date().toISOString(),
+        objective: 'Initiate 3 partnership conversations',
+        steps: [{ order: 1, action: 'Identify 3 complementary businesses', done: false }, { order: 2, action: 'Craft personalized outreach for each', done: false }, { order: 3, action: 'Send all 3 messages', done: false }],
+        timeboxMinutes: 25,
+        successMetric: '3 partnership messages sent',
+        modeTag: 'brand expansion',
       },
       sales: {
-        id: Date.now().toString(),
         title: 'Follow up with 5 warm leads',
-        description: 'Reach out to people who showed interest but haven\'t bought. Ask a genuine question about their situation or offer to help clarify any concerns.',
+        description: 'Reach out to people who showed interest but haven\'t bought. Ask about their situation.',
         reason: 'Most sales happen after multiple touchpoints. Following up closes deals.',
         estimatedTime: '20-30 minutes',
-        status: 'pending',
-        createdAt: new Date().toISOString(),
+        objective: 'Re-engage warm leads and close deals',
+        steps: [{ order: 1, action: 'List 5 warm leads', done: false }, { order: 2, action: 'Personalize follow-up for each', done: false }, { order: 3, action: 'Send all follow-ups', done: false }],
+        timeboxMinutes: 25,
+        successMetric: '5 follow-ups sent',
+        modeTag: 'sales',
       },
       systems: {
-        id: Date.now().toString(),
         title: 'Automate or delegate one repetitive task',
-        description: 'Identify something you do repeatedly each week. Set up an automation (Zapier, templates) or document it for delegation.',
+        description: 'Identify something you do repeatedly each week. Set up an automation or document it for delegation.',
         reason: 'Every task you automate or delegate gives you more time for high-impact work.',
         estimatedTime: '30-45 minutes',
-        status: 'pending',
-        createdAt: new Date().toISOString(),
+        objective: 'Free up time by systematizing one task',
+        steps: [{ order: 1, action: 'Identify a repetitive weekly task', done: false }, { order: 2, action: 'Choose: automate or delegate', done: false }, { order: 3, action: 'Set up the automation or write the delegation doc', done: false }],
+        timeboxMinutes: 40,
+        successMetric: '1 task automated or delegated',
+        modeTag: 'systems',
       },
     };
-    return directives[focus] || directives.leads;
+
+    const template = templates[focus] || templates.leads;
+    return { ...base, ...template };
   }, []);
 
   return {
@@ -593,5 +674,9 @@ export const [BusinessProvider, useBusiness] = createContextHook(() => {
     
     getCurrentFocus,
     generateDailyDirective,
+
+    completionLogs,
+    currentBottleneck,
+    executionStats,
   };
 });

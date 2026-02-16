@@ -25,6 +25,7 @@ import {
 import { useBusiness } from '@/store/BusinessContext';
 import Colors from '@/constants/colors';
 import { DailyDirective } from '@/types/business';
+import ExecutionKernelWidget from '@/components/ExecutionKernelWidget';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import { BrandWatermark, BrandMicroIcon } from '@/components/brand';
@@ -38,6 +39,8 @@ export default function DashboardScreen() {
     isOnboardingComplete, 
     isLoading,
     metrics,
+    currentBottleneck,
+    executionStats,
     switchProject,
     completeDailyDirective,
     updateDailyDirective,
@@ -140,20 +143,37 @@ export default function DashboardScreen() {
         estimatedTime: activeProject.advisorDirective.estimatedTime,
         status: 'pending',
         createdAt: new Date().toISOString(),
+        objective: activeProject.advisorDirective.title,
+        steps: [{ order: 1, action: activeProject.advisorDirective.description, done: false }],
+        timeboxMinutes: 30,
+        successMetric: 'Task completed as described',
+        blockers: [],
+        countermoves: [],
+        modeTag: activeProject.focusMode === 'manual' ? (activeProject.manualFocusArea || 'general') : (activeProject.bottleneck || 'general'),
+        linkedAssets: [],
       };
     } else {
       const focus = activeProject.focusMode === 'manual' 
         ? activeProject.manualFocusArea || 'leads'
         : activeProject.bottleneck || 'leads';
+      const focusData = getDirectiveForFocus(focus);
       
       directive = {
         id: Date.now().toString(),
-        title: getDirectiveForFocus(focus).title,
-        description: getDirectiveForFocus(focus).description,
-        reason: getDirectiveForFocus(focus).reason,
-        estimatedTime: getDirectiveForFocus(focus).estimatedTime,
+        title: focusData.title,
+        description: focusData.description,
+        reason: focusData.reason,
+        estimatedTime: focusData.estimatedTime,
         status: 'pending',
         createdAt: new Date().toISOString(),
+        objective: focusData.title,
+        steps: [{ order: 1, action: focusData.description, done: false }],
+        timeboxMinutes: 30,
+        successMetric: 'Task completed',
+        blockers: [],
+        countermoves: [],
+        modeTag: focus,
+        linkedAssets: [],
       };
     }
     
@@ -251,7 +271,12 @@ export default function DashboardScreen() {
             </LinearGradient>
           </TouchableOpacity>
 
-          <View style={styles.directiveSection}>
+          <ExecutionKernelWidget
+            bottleneck={currentBottleneck}
+            stats={executionStats}
+          />
+
+          <View style={[styles.directiveSection, { marginTop: 20 }]}>
             <View style={styles.directiveSectionHeader}>
               <BrandMicroIcon size={16} color={Colors.accent} />
               <Text style={styles.directiveSectionTitle}>Today's Task</Text>

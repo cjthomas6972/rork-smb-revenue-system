@@ -15,6 +15,21 @@ export type FocusMode = 'manual' | 'autopilot';
 
 export type ProjectStatus = 'active' | 'archived';
 
+export type BottleneckCategory = 'traffic' | 'conversion' | 'pricing' | 'follow-up' | 'operations';
+
+export interface BottleneckDiagnosis {
+  category: BottleneckCategory;
+  confidence: number;
+  reasoning: string;
+  diagnosedAt: string;
+}
+
+export interface DirectiveStep {
+  order: number;
+  action: string;
+  done: boolean;
+}
+
 export interface DailyDirective {
   id: string;
   title: string;
@@ -24,6 +39,39 @@ export interface DailyDirective {
   status: 'pending' | 'complete';
   createdAt: string;
   dueDate?: string;
+  objective: string;
+  steps: DirectiveStep[];
+  timeboxMinutes: number;
+  successMetric: string;
+  blockers: string[];
+  countermoves: string[];
+  modeTag: string;
+  linkedAssets: string[];
+}
+
+export interface DirectiveCompletionLog {
+  directiveId: string;
+  projectId: string;
+  completedAt: string;
+  title: string;
+  modeTag: string;
+}
+
+export interface ExecutionStats {
+  streak: number;
+  weeklyCompletionPct: number;
+  consistencyScore: number;
+  revenuePerDirective: number | null;
+  lastUpdated: string;
+}
+
+export interface MetricsSnapshot {
+  periodLabel: string;
+  views: number;
+  clicks: number;
+  messages: number;
+  calls: number;
+  sales: number;
 }
 
 export interface AdvisorDirective {
