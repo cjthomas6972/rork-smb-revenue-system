@@ -22,7 +22,7 @@ function OnboardingRouter() {
       return;
     }
 
-    const inOnboarding = segments[0] === 'onboarding';
+    const inOnboarding = segments[0] === ('onboarding' as string);
 
     console.log('[OnboardingRouter] State:', { 
       isOnboardingComplete, 
@@ -33,11 +33,11 @@ function OnboardingRouter() {
     if (isOnboardingComplete === false) {
       if (!inOnboarding) {
         console.log('[OnboardingRouter] First-time user, redirecting to onboarding');
-        router.replace('/onboarding');
+        router.replace('/onboarding' as never);
       }
     } else if (inOnboarding) {
       console.log('[OnboardingRouter] Onboarding complete, redirecting to dashboard');
-      router.replace('/');
+      router.replace('/' as never);
     }
   }, [isOnboardingComplete, isLoading, segments, router]);
 
@@ -56,16 +56,6 @@ function RootLayoutNav() {
             headerShown: false,
             presentation: "fullScreenModal",
             gestureEnabled: false,
-          }} 
-        />
-
-        <Stack.Screen 
-          name="asset-editor" 
-          options={{ 
-            presentation: "modal",
-            headerStyle: { backgroundColor: Colors.secondary },
-            headerTintColor: Colors.text,
-            title: "Edit Asset",
           }} 
         />
       </Stack>

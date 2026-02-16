@@ -150,7 +150,7 @@ export default function AdvisorScreen() {
   };
 
   const isLoading = messages.some(
-    (m) => m.role === 'assistant' && m.parts.some((p) => p.type === 'text' && p.text === '')
+    (m) => m.role === 'assistant' && m.parts.some((p) => p.type === 'text' && 'text' in p && (p as { text: string }).text === '')
   );
 
   if (!activeProject) {
@@ -195,7 +195,8 @@ export default function AdvisorScreen() {
               </View>
             )}
             {message.parts.map((part, index) => {
-              if (part.type === 'text') {
+              if (part.type === 'text' && 'text' in part) {
+                const textContent = (part as { text: string }).text ?? '';
                 return (
                   <View key={`${message.id}-${index}`}>
                     <Text
@@ -204,13 +205,13 @@ export default function AdvisorScreen() {
                         message.role === 'user' ? styles.userText : styles.assistantText,
                       ]}
                     >
-                      {part.text}
+                      {textContent}
                     </Text>
-                    {message.role === 'assistant' && part.text.length > 50 && (
+                    {message.role === 'assistant' && textContent.length > 50 ? (
                       <View style={styles.messageActions}>
                         <TouchableOpacity
                           style={styles.copyButton}
-                          onPress={() => handleCopy(part.text, `${message.id}-${index}`)}
+                          onPress={() => handleCopy(textContent, `${message.id}-${index}`)}
                         >
                           {copiedId === `${message.id}-${index}` ? (
                             <Check size={14} color={Colors.accent} />
@@ -225,7 +226,7 @@ export default function AdvisorScreen() {
                           style={styles.saveDirectiveButton}
                           onPress={() => {
                             if (activeProject) {
-                              const directive = extractDirectiveFromResponse(part.text);
+                              const directive = extractDirectiveFromResponse(textContent);
                               if (directive) {
                                 updateAdvisorDirective({ projectId: activeProject.id, directive });
                                 Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -237,7 +238,7 @@ export default function AdvisorScreen() {
                           <Text style={styles.saveDirectiveText}>Save as Directive</Text>
                         </TouchableOpacity>
                       </View>
-                    )}
+                    ) : null}
                   </View>
                 );
               }

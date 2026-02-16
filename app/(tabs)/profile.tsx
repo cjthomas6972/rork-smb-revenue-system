@@ -236,7 +236,7 @@ export default function ProfileScreen() {
             <Text style={styles.emptyText}>No project selected</Text>
             <TouchableOpacity 
               style={styles.createProjectButton}
-              onPress={() => router.push('/onboarding')}
+              onPress={() => router.push('/onboarding' as never)}
             >
               <Text style={styles.createProjectButtonText}>Create a Project</Text>
             </TouchableOpacity>

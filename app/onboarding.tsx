@@ -90,7 +90,7 @@ export default function OnboardingScreen() {
         manualFocusArea: undefined,
       };
       createProject(project);
-      router.replace('/');
+      router.replace('/' as never);
     } else {
       setStep(step + 1);
     }

@@ -104,7 +104,7 @@ function ExecutionKernelWidget({ bottleneck, stats }: ExecutionKernelWidgetProps
             style={[
               styles.weeklyBarFill,
               {
-                width: `${Math.max(stats.weeklyCompletionPct, 2)}%` as const,
+                width: `${Math.max(stats.weeklyCompletionPct, 2)}%`,
                 backgroundColor: stats.weeklyCompletionPct >= 70 ? Colors.accent : stats.weeklyCompletionPct >= 40 ? '#F59E0B' : '#EF4444',
               },
             ]}

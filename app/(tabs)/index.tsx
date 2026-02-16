@@ -113,7 +113,7 @@ export default function DashboardScreen() {
 
   const handleOpenForge = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    router.push('/advisor');
+    router.push('/advisor' as never);
   };
 
   const handleGenerateDailyTask = () => {
@@ -231,7 +231,7 @@ export default function DashboardScreen() {
         </TouchableOpacity>
         <TouchableOpacity 
           style={styles.newProjectButton}
-          onPress={() => router.push('/onboarding')}
+          onPress={() => router.push('/onboarding' as never)}
         >
           <Plus size={20} color={Colors.accent} />
         </TouchableOpacity>
@@ -411,7 +411,7 @@ export default function DashboardScreen() {
               style={styles.newProjectMenuItem}
               onPress={() => {
                 setIsProjectMenuOpen(false);
-                router.push('/onboarding');
+                router.push('/onboarding' as never);
               }}
             >
               <Plus size={18} color={Colors.accent} />
