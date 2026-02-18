@@ -26,11 +26,13 @@ import {
   ChevronRight,
 } from 'lucide-react-native';
 import { useBusiness } from '@/store/BusinessContext';
+import { useProjectMemoryStats } from '@/store/MemoryContext';
 import Colors from '@/constants/colors';
 import { DailyDirective } from '@/types/business';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import { BrandMicroIcon } from '@/components/brand';
+import MemoryOSWidget from '@/components/MemoryOSWidget';
 
 const BOTTLENECK_LABELS: Record<string, string> = {
   traffic: 'Traffic',
@@ -80,6 +82,8 @@ export default function DashboardScreen() {
   const [selectedProjectForActions, setSelectedProjectForActions] = useState<string | null>(null);
   const [showCompletion, setShowCompletion] = useState(false);
   const [completionStreak, setCompletionStreak] = useState(0);
+
+  const memoryStats = useProjectMemoryStats(activeProjectId);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(20)).current;
@@ -357,6 +361,14 @@ export default function DashboardScreen() {
               </TouchableOpacity>
             </View>
           )}
+          <View style={styles.memoryWidgetWrap}>
+            <MemoryOSWidget
+              totalChunks={memoryStats.totalChunks}
+              totalEvents={memoryStats.totalEvents}
+              recentChunks={memoryStats.recentChunks}
+              topTags={memoryStats.topTags}
+            />
+          </View>
         </Animated.View>
       </ScrollView>
 
@@ -926,5 +938,8 @@ const styles = StyleSheet.create({
   actionItemText: {
     fontSize: 15,
     color: Colors.text,
+  },
+  memoryWidgetWrap: {
+    marginTop: 16,
   },
 });

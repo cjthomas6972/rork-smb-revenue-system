@@ -5,6 +5,8 @@ import React, { useEffect, useState } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { StatusBar } from "expo-status-bar";
 import { BusinessProvider, useBusiness } from "@/store/BusinessContext";
+import { MemoryProvider } from "@/store/MemoryContext";
+import { useMemoryBridge } from "@/hooks/useMemoryBridge";
 import Colors from "@/constants/colors";
 import { CinematicSplash } from "@/components/brand";
 
@@ -44,10 +46,16 @@ function OnboardingRouter() {
   return null;
 }
 
+function MemoryBridge() {
+  useMemoryBridge();
+  return null;
+}
+
 function RootLayoutNav() {
   return (
     <>
       <OnboardingRouter />
+      <MemoryBridge />
       <Stack screenOptions={{ headerBackTitle: "Back" }}>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen 
@@ -78,9 +86,11 @@ export default function RootLayout() {
     <QueryClientProvider client={queryClient}>
       <GestureHandlerRootView style={{ flex: 1, backgroundColor: Colors.primary }}>
         <BusinessProvider>
-          <StatusBar style="light" />
-          <RootLayoutNav />
-          {showSplash && <CinematicSplash onComplete={handleSplashComplete} />}
+          <MemoryProvider>
+            <StatusBar style="light" />
+            <RootLayoutNav />
+            {showSplash && <CinematicSplash onComplete={handleSplashComplete} />}
+          </MemoryProvider>
         </BusinessProvider>
       </GestureHandlerRootView>
     </QueryClientProvider>

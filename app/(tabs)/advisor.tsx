@@ -10,10 +10,12 @@ import {
   Platform,
   ActivityIndicator,
 } from 'react-native';
-import { Send, Sparkles, Copy, Check, Zap, Target, ArrowRight } from 'lucide-react-native';
+import { Send, Sparkles, Copy, Check, Zap, Target, ArrowRight, Brain } from 'lucide-react-native';
 import { useRorkAgent } from '@rork-ai/toolkit-sdk';
 import { useBusiness } from '@/store/BusinessContext';
+import { useMemory } from '@/store/MemoryContext';
 import { getSystemPrompt } from '@/constants/systemPrompt';
+import { extractAdvisorMemories } from '@/utils/memoryEngine';
 import Colors from '@/constants/colors';
 import * as Haptics from 'expo-haptics';
 import { BrandMicroIcon } from '@/components/brand';
@@ -23,6 +25,7 @@ export default function AdvisorScreen() {
   const [input, setInput] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [savedDirective, setSavedDirective] = useState(false);
+  const [lastUserMessage, setLastUserMessage] = useState('');
   const scrollViewRef = useRef<ScrollView>(null);
   const {
     activeProject,
@@ -32,7 +35,16 @@ export default function AdvisorScreen() {
     currentBottleneck,
   } = useBusiness();
 
-  const systemPrompt = getSystemPrompt(activeProject, metrics);
+  const {
+    getFormattedContext,
+    writeMemoryAndEvents,
+  } = useMemory();
+
+  const memoryContext = activeProject
+    ? getFormattedContext(activeProject.id, lastUserMessage || activeProject.businessType)
+    : '';
+
+  const systemPrompt = getSystemPrompt(activeProject, metrics, memoryContext);
 
   const { messages, sendMessage, setMessages } = useRorkAgent({
     tools: {},
@@ -55,7 +67,7 @@ export default function AdvisorScreen() {
           parts: [
             {
               type: 'text',
-              text: `SKYFORGE ready. Analyzing "${activeProject.name}".\n\nCurrent bottleneck: ${bnLabel}${currentBottleneck ? ` (${currentBottleneck.confidence}% confidence)` : ''}.\n\nTell me what is happening — I will give you the exact next move.`,
+              text: `SKYFORGE ready. Analyzing "${activeProject.name}".\n\nCurrent bottleneck: ${bnLabel}${currentBottleneck ? ` (${currentBottleneck.confidence}% confidence)` : ''}.\n\nMemory OS active — I remember your workspace context.\n\nTell me what is happening — I will give you the exact next move.`,
             },
           ],
         },
@@ -76,7 +88,7 @@ export default function AdvisorScreen() {
           parts: [
             {
               type: 'text',
-              text: `SKYFORGE ready. Analyzing "${activeProject.name}".\n\nCurrent bottleneck: ${bnLabel}${currentBottleneck ? ` (${currentBottleneck.confidence}% confidence)` : ''}.\n\nTell me what is happening — I will give you the exact next move.`,
+              text: `SKYFORGE ready. Analyzing "${activeProject.name}".\n\nCurrent bottleneck: ${bnLabel}${currentBottleneck ? ` (${currentBottleneck.confidence}% confidence)` : ''}.\n\nMemory OS active — I remember your workspace context.\n\nTell me what is happening — I will give you the exact next move.`,
             },
           ],
         },
@@ -124,6 +136,23 @@ export default function AdvisorScreen() {
     return null;
   };
 
+  const processMemoryFromResponse = useCallback((responseText: string, userMsg: string) => {
+    if (!activeProject) return;
+
+    const memoryWrites = extractAdvisorMemories(responseText, userMsg, activeProject.name);
+    if (memoryWrites.length > 0) {
+      writeMemoryAndEvents(
+        activeProject.id,
+        memoryWrites,
+        [{
+          eventType: 'decision_made',
+          metadata: { source: 'advisor', messageLength: responseText.length },
+        }]
+      );
+      console.log(`[Advisor] Stored ${memoryWrites.length} memory chunks from conversation`);
+    }
+  }, [activeProject, writeMemoryAndEvents]);
+
   const handleSend = async () => {
     if (!input.trim() || !activeProject) return;
 
@@ -131,6 +160,7 @@ export default function AdvisorScreen() {
     const message = input.trim();
     setInput('');
     setSavedDirective(false);
+    setLastUserMessage(message);
 
     await sendMessage({
       text: `[System Context: ${systemPrompt}]\n\nUser: ${message}`,
@@ -148,6 +178,7 @@ export default function AdvisorScreen() {
             updateAdvisorDirective({ projectId: activeProject.id, directive });
             console.log('[Advisor] Directive extracted:', directive.title);
           }
+          processMemoryFromResponse(textPart.text, message);
         }
       }
     }, 500);
@@ -186,6 +217,20 @@ export default function AdvisorScreen() {
       updateAdvisorDirective({ projectId: activeProject.id, directive: { ...extracted } });
     }
     setSavedDirective(true);
+
+    writeMemoryAndEvents(
+      activeProject.id,
+      [{
+        content: `User set advisor recommendation as daily directive: "${title}"`,
+        tags: ['decision'],
+        sourceType: 'decision',
+        reason: 'User adopted advisor recommendation as daily task',
+      }],
+      [{
+        eventType: 'decision_made',
+        metadata: { action: 'set_as_directive', title },
+      }]
+    );
   };
 
   const handleCopy = async (text: string, id: string) => {
@@ -219,14 +264,20 @@ export default function AdvisorScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       keyboardVerticalOffset={90}
     >
-      {currentBottleneck && (
-        <View style={styles.bottleneckBar}>
-          <Target size={12} color={Colors.accent} />
-          <Text style={styles.bottleneckBarText}>
-            Bottleneck: {bnLabel} ({currentBottleneck.confidence}%)
-          </Text>
+      <View style={styles.topBar}>
+        {currentBottleneck && (
+          <View style={styles.bottleneckBar}>
+            <Target size={12} color={Colors.accent} />
+            <Text style={styles.bottleneckBarText}>
+              Bottleneck: {bnLabel} ({currentBottleneck.confidence}%)
+            </Text>
+          </View>
+        )}
+        <View style={styles.memoryIndicator}>
+          <Brain size={11} color={Colors.brand.electricBlue} />
+          <Text style={styles.memoryIndicatorText}>Memory OS</Text>
         </View>
-      )}
+      </View>
 
       <ScrollView
         ref={scrollViewRef}
@@ -354,20 +405,40 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     textAlign: 'center',
   },
-  bottleneckBar: {
+  topBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 8,
     backgroundColor: Colors.secondary,
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
   },
+  bottleneckBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
   bottleneckBarText: {
     fontSize: 12,
     color: Colors.textSecondary,
     fontWeight: '500' as const,
+  },
+  memoryIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: Colors.brand.electricBlue + '15',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  memoryIndicatorText: {
+    fontSize: 10,
+    fontWeight: '600' as const,
+    color: Colors.brand.electricBlue,
+    letterSpacing: 0.3,
   },
   messagesContainer: {
     flex: 1,
