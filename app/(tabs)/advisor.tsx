@@ -20,6 +20,7 @@ import Colors from '@/constants/colors';
 import * as Haptics from 'expo-haptics';
 import { BrandMicroIcon } from '@/components/brand';
 import { DailyDirective } from '@/types/business';
+import { useAutonomousOS } from '@/hooks/useAutonomousOS';
 
 export default function AdvisorScreen() {
   const [input, setInput] = useState('');
@@ -57,6 +58,7 @@ export default function AdvisorScreen() {
   const bnLabel = currentBottleneck?.category
     ? currentBottleneck.category.charAt(0).toUpperCase() + currentBottleneck.category.slice(1)
     : currentFocus || 'General';
+  const autonomousSnapshot = useAutonomousOS(activeProject, metrics);
 
   const initializeWelcome = useCallback(() => {
     if (messages.length === 0 && activeProject) {
@@ -95,7 +97,7 @@ export default function AdvisorScreen() {
       ]);
       setSavedDirective(false);
     }
-  }, [activeProject?.id]);
+  }, [activeProject, bnLabel, currentBottleneck, setMessages]);
 
   const extractDirectiveFromResponse = (text: string) => {
     const lines = text.split('\n');
@@ -156,13 +158,13 @@ export default function AdvisorScreen() {
   const handleSend = async () => {
     if (!input.trim() || !activeProject) return;
 
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const message = input.trim();
     setInput('');
     setSavedDirective(false);
     setLastUserMessage(message);
 
-    await sendMessage({
+    sendMessage({
       text: `[System Context: ${systemPrompt}]\n\nUser: ${message}`,
     });
 
@@ -186,7 +188,7 @@ export default function AdvisorScreen() {
 
   const handleSetAsDirective = (text: string) => {
     if (!activeProject) return;
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
     const extracted = extractDirectiveFromResponse(text);
     const title = extracted?.title || text.split(/[.!?\n]/)[0].substring(0, 80);
@@ -234,7 +236,7 @@ export default function AdvisorScreen() {
   };
 
   const handleCopy = async (text: string, id: string) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     if (Platform.OS === 'web') {
       await navigator.clipboard.writeText(text);
     }
@@ -286,6 +288,20 @@ export default function AdvisorScreen() {
         showsVerticalScrollIndicator={false}
         onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
       >
+        {autonomousSnapshot && autonomousSnapshot.recommendations.length > 0 ? (
+          <View style={styles.recommendationsCard}>
+            <View style={styles.recommendationsHeader}>
+              <Sparkles size={14} color={Colors.accent} />
+              <Text style={styles.recommendationsTitle}>Growth Analyst</Text>
+            </View>
+            {autonomousSnapshot.recommendations.map((recommendation, index) => (
+              <View key={`${recommendation}-${index}`} style={styles.recommendationRow}>
+                <BrandMicroIcon size={12} color={Colors.accent} />
+                <Text style={styles.recommendationText}>{recommendation}</Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
         {messages.map((message) => (
           <View
             key={message.id}
@@ -442,6 +458,36 @@ const styles = StyleSheet.create({
   },
   messagesContainer: {
     flex: 1,
+  },
+  recommendationsCard: {
+    backgroundColor: Colors.secondary,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Colors.accent + '30',
+    padding: 14,
+    marginBottom: 16,
+    gap: 10,
+  },
+  recommendationsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  recommendationsTitle: {
+    fontSize: 13,
+    fontWeight: '700' as const,
+    color: Colors.text,
+  },
+  recommendationRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  recommendationText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
+    color: Colors.textSecondary,
   },
   messagesContent: {
     padding: 16,

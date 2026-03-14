@@ -33,6 +33,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import { BrandMicroIcon } from '@/components/brand';
 import MemoryOSWidget from '@/components/MemoryOSWidget';
+import { useAutonomousOS } from '@/hooks/useAutonomousOS';
 
 const BOTTLENECK_LABELS: Record<string, string> = {
   traffic: 'Traffic',
@@ -84,6 +85,7 @@ export default function DashboardScreen() {
   const [completionStreak, setCompletionStreak] = useState(0);
 
   const memoryStats = useProjectMemoryStats(activeProjectId);
+  const autonomousSnapshot = useAutonomousOS(activeProject, metrics);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(20)).current;
@@ -99,7 +101,7 @@ export default function DashboardScreen() {
 
   const handleCompleteDirective = useCallback(() => {
     if (!activeProject?.dailyDirective) return;
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     completeDailyDirective(activeProject.id);
     setCompletionStreak(executionStats.streak + 1);
     setShowCompletion(true);
@@ -119,7 +121,7 @@ export default function DashboardScreen() {
 
   const handleToggleStep = useCallback((stepOrder: number) => {
     if (!activeProject?.dailyDirective || activeProject.dailyDirective.status === 'complete') return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
     const updatedSteps = activeProject.dailyDirective.steps.map(s =>
       s.order === stepOrder ? { ...s, done: !s.done } : s
@@ -133,20 +135,20 @@ export default function DashboardScreen() {
 
   const handleGenerateNew = useCallback(() => {
     if (!activeProject) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     const focus = getCurrentFocus();
     const directive = generateDailyDirective(focus);
     updateDailyDirective({ projectId: activeProject.id, directive });
   }, [activeProject, getCurrentFocus, generateDailyDirective, updateDailyDirective]);
 
   const handleSwitchProject = useCallback((projectId: string) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     switchProject(projectId);
     setIsProjectMenuOpen(false);
   }, [switchProject]);
 
   const handleProjectAction = useCallback((action: 'archive' | 'delete', projectId: string) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     if (action === 'archive') archiveProject(projectId);
     else deleteProject(projectId);
     setIsProjectActionsOpen(false);
@@ -250,6 +252,23 @@ export default function DashboardScreen() {
               </View>
             </View>
           </View>
+
+          {autonomousSnapshot?.summary ? (
+            <View style={styles.summaryCard}>
+              <View style={styles.summaryHeader}>
+                <BrandMicroIcon size={14} color={Colors.accent} />
+                <Text style={styles.summaryLabel}>Founder Summary</Text>
+              </View>
+              <Text style={styles.summaryHeadline}>{autonomousSnapshot.summary.headline}</Text>
+              <View style={styles.summaryPills}>
+                {autonomousSnapshot.summary.priorities.slice(0, 3).map((priority, index) => (
+                  <View key={`${priority}-${index}`} style={styles.summaryPill}>
+                    <Text style={styles.summaryPillText}>{priority}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          ) : null}
 
           {directive && !isComplete ? (
             <View style={styles.directiveCard}>
@@ -515,6 +534,49 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     borderWidth: 1,
     borderColor: Colors.border,
+  },
+  summaryCard: {
+    backgroundColor: Colors.secondary,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: Colors.accent + '25',
+    gap: 12,
+  },
+  summaryHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  summaryLabel: {
+    fontSize: 12,
+    fontWeight: '700' as const,
+    color: Colors.textMuted,
+    textTransform: 'uppercase' as const,
+    letterSpacing: 0.8,
+  },
+  summaryHeadline: {
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: '600' as const,
+    color: Colors.text,
+  },
+  summaryPills: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  summaryPill: {
+    backgroundColor: Colors.tertiary,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  summaryPillText: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    fontWeight: '500' as const,
   },
   bottleneckHeroTop: {
     flexDirection: 'row',

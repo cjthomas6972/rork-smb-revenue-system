@@ -31,6 +31,7 @@ import { useBusiness } from '@/store/BusinessContext';
 import { RevenueAsset } from '@/types/business';
 import Colors from '@/constants/colors';
 import * as Haptics from 'expo-haptics';
+import { useAutonomousOS } from '@/hooks/useAutonomousOS';
 
 const ASSET_TYPES = [
   { key: 'offer', label: 'Offer', icon: Target },
@@ -170,6 +171,7 @@ export default function AssetsScreen() {
   const [newTitle, setNewTitle] = useState('');
   const [newContent, setNewContent] = useState('');
   const [newType, setNewType] = useState<RevenueAsset['type']>('offer');
+  const autonomousSnapshot = useAutonomousOS(activeProject, []);
 
   const filteredAssets = selectedType
     ? assets.filter((a) => a.type === selectedType)
@@ -193,12 +195,12 @@ export default function AssetsScreen() {
   };
 
   const handleRateAsset = (assetId: string, rating: number) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     rateAsset({ id: assetId, rating });
   };
 
   const handleIncrementResult = (assetId: string) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     incrementAssetResult(assetId);
   };
 
@@ -229,7 +231,7 @@ export default function AssetsScreen() {
       return;
     }
 
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     if (editingAsset) {
       updateAsset({
@@ -263,7 +265,7 @@ export default function AssetsScreen() {
         text: 'Delete',
         style: 'destructive',
         onPress: () => {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
           deleteAsset(id);
         },
       },
@@ -275,7 +277,7 @@ export default function AssetsScreen() {
     const currentIndex = statusOrder.indexOf(asset.status);
     const nextStatus = statusOrder[(currentIndex + 1) % statusOrder.length];
     
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     updateAsset({ id: asset.id, updates: { status: nextStatus } });
   };
 
@@ -323,6 +325,20 @@ export default function AssetsScreen() {
       </ScrollView>
 
       <ScrollView style={styles.assetsList} contentContainerStyle={styles.assetsContent}>
+        {autonomousSnapshot && autonomousSnapshot.pages.length > 0 ? (
+          <View style={styles.pagesSection}>
+            <Text style={styles.pagesSectionTitle}>Presence Pages</Text>
+            {autonomousSnapshot.pages.map((page) => (
+              <View key={page.id} style={styles.pageCard}>
+                <View>
+                  <Text style={styles.pageTitle}>{page.title}</Text>
+                  <Text style={styles.pageMeta}>/{page.slug} · {page.status}</Text>
+                </View>
+                <Text style={styles.pageSections}>{page.sections.join(' · ')}</Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
         <TopPerformingSection assets={assets} />
         {filteredAssets.length === 0 ? (
           <View style={styles.emptyState}>
@@ -552,6 +568,41 @@ const styles = StyleSheet.create({
   assetsContent: {
     padding: 16,
     paddingBottom: 100,
+  },
+  pagesSection: {
+    backgroundColor: Colors.secondary,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: 14,
+    marginBottom: 16,
+    gap: 10,
+  },
+  pagesSectionTitle: {
+    fontSize: 14,
+    fontWeight: '700' as const,
+    color: Colors.text,
+  },
+  pageCard: {
+    backgroundColor: Colors.tertiary,
+    borderRadius: 12,
+    padding: 12,
+    gap: 6,
+  },
+  pageTitle: {
+    fontSize: 13,
+    fontWeight: '600' as const,
+    color: Colors.text,
+  },
+  pageMeta: {
+    fontSize: 11,
+    color: Colors.textMuted,
+    marginTop: 2,
+  },
+  pageSections: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: Colors.textSecondary,
   },
   emptyState: {
     alignItems: 'center',

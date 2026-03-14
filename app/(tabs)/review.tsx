@@ -18,7 +18,6 @@ import {
   Calendar,
   ArrowRight,
   BarChart3,
-  Zap,
   Eye,
   MousePointer,
   MessageSquare,
@@ -29,6 +28,8 @@ import { useBusiness } from '@/store/BusinessContext';
 import Colors from '@/constants/colors';
 import { WeeklyReview } from '@/types/business';
 import { BrandWatermark } from '@/components/brand';
+import { useAutonomousOS } from '@/hooks/useAutonomousOS';
+import { ReviewService } from '@/core/services/ReviewService';
 import * as Haptics from 'expo-haptics';
 
 const BOTTLENECK_LABELS: Record<string, string> = {
@@ -244,10 +245,12 @@ export default function WeeklyReviewScreen() {
   } = useBusiness();
 
   const [spinAnim] = useState(() => new Animated.Value(0));
+  const [reviewRefresh, setReviewRefresh] = useState(0);
+  const autonomousSnapshot = useAutonomousOS(activeProject, []);
 
   const handleGenerate = useCallback(() => {
     if (!activeProjectId || isGeneratingReview) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     Animated.loop(
       Animated.timing(spinAnim, {
@@ -264,6 +267,17 @@ export default function WeeklyReviewScreen() {
       spinAnim.setValue(0);
     }, 1200);
   }, [activeProjectId, isGeneratingReview, generateWeeklyReview, spinAnim]);
+
+  const handleRequestReview = useCallback(() => {
+    if (!activeProject) return;
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    ReviewService.requestReview({
+      business_id: activeProject.id,
+      vertical_id: activeProject.businessType.toLowerCase().includes('fitness') ? 'fitness' : activeProject.businessType.toLowerCase().includes('auto') ? 'automotive' : 'home-services',
+      source: 'google',
+    });
+    setReviewRefresh((value) => value + 1);
+  }, [activeProject]);
 
   const spin = spinAnim.interpolate({
     inputRange: [0, 1],
@@ -310,6 +324,22 @@ export default function WeeklyReviewScreen() {
             </Text>
           </TouchableOpacity>
         </View>
+
+        {autonomousSnapshot ? (
+          <View style={styles.autonomousCard}>
+            <View style={styles.autonomousRow}>
+              <Text style={styles.autonomousLabel}>Review requests</Text>
+              <Text style={styles.autonomousValue}>{autonomousSnapshot.reviews.length + reviewRefresh}</Text>
+            </View>
+            <View style={styles.autonomousRow}>
+              <Text style={styles.autonomousLabel}>Lead records</Text>
+              <Text style={styles.autonomousValue}>{autonomousSnapshot.leads.length}</Text>
+            </View>
+            <TouchableOpacity style={styles.requestReviewButton} onPress={handleRequestReview}>
+              <Text style={styles.requestReviewText}>Trigger Review Request</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
 
         {sortedReviews.length === 0 ? (
           <View style={styles.emptyState}>
@@ -365,6 +395,40 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 20,
+  },
+  autonomousCard: {
+    backgroundColor: Colors.secondary,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: 16,
+    marginBottom: 16,
+    gap: 12,
+  },
+  autonomousRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  autonomousLabel: {
+    fontSize: 13,
+    color: Colors.textSecondary,
+  },
+  autonomousValue: {
+    fontSize: 18,
+    fontWeight: '700' as const,
+    color: Colors.text,
+  },
+  requestReviewButton: {
+    backgroundColor: Colors.accent,
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  requestReviewText: {
+    color: Colors.primary,
+    fontSize: 13,
+    fontWeight: '700' as const,
   },
   headerTitle: {
     fontSize: 22,

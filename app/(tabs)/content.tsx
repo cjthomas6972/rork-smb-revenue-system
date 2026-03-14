@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -25,6 +25,8 @@ import { useBusiness } from '@/store/BusinessContext';
 import { ContentItem } from '@/types/business';
 import Colors from '@/constants/colors';
 import * as Haptics from 'expo-haptics';
+import { useAutonomousOS } from '@/hooks/useAutonomousOS';
+import { PresenceService } from '@/core/services/PresenceService';
 
 const CONTENT_TYPES = [
   { key: 'video_script', label: 'Video Script', icon: Video },
@@ -40,8 +42,12 @@ export default function ContentScreen() {
   const [generatedContent, setGeneratedContent] = useState<string>('');
   const [customPrompt, setCustomPrompt] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
+  const [pageDraft, setPageDraft] = useState('');
+  const autonomousSnapshot = useAutonomousOS(activeProject, []);
 
   const filteredContent = content.filter((c) => c.type === selectedType);
+  const selectedPage = autonomousSnapshot?.pages.find((page) => page.id === selectedPageId) ?? autonomousSnapshot?.pages[0] ?? null;
 
   const getTypeIcon = (type: string) => {
     const typeConfig = CONTENT_TYPES.find((t) => t.key === type);
@@ -52,7 +58,7 @@ export default function ContentScreen() {
   const generateContent = async () => {
     if (!activeProject) return;
     
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setIsGenerating(true);
     setGeneratedContent('');
 
@@ -122,7 +128,7 @@ DAY 7 - Final offer:`,
   const saveContent = () => {
     if (!generatedContent || !activeProjectId) return;
     
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     
     const newContent: ContentItem = {
       id: Date.now().toString(),
@@ -142,14 +148,30 @@ DAY 7 - Final offer:`,
     setCustomPrompt('');
   };
 
+  const handleSavePageContent = () => {
+    if (!activeProject || !selectedPage) return;
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    PresenceService.updatePageContent({
+      business_id: activeProject.id,
+      page_id: selectedPage.id,
+      content: { body: pageDraft },
+    });
+  };
+
   const handleCopy = async (text: string, id: string) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     if (Platform.OS === 'web') {
       await navigator.clipboard.writeText(text);
     }
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
   };
+
+  useEffect(() => {
+    if (selectedPage && typeof selectedPage.content.body === 'string') {
+      setPageDraft(selectedPage.content.body);
+    }
+  }, [selectedPage]);
 
   if (!activeProject) {
     return (
@@ -197,6 +219,34 @@ DAY 7 - Final offer:`,
       </ScrollView>
 
       <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
+        {autonomousSnapshot && autonomousSnapshot.pages.length > 0 ? (
+          <View style={styles.pageEditorSection}>
+            <Text style={styles.sectionTitle}>Page Content</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pageChipRow}>
+              {autonomousSnapshot.pages.map((page) => (
+                <TouchableOpacity
+                  key={page.id}
+                  style={[styles.pageChip, selectedPage?.id === page.id && styles.pageChipActive]}
+                  onPress={() => setSelectedPageId(page.id)}
+                >
+                  <Text style={[styles.pageChipText, selectedPage?.id === page.id && styles.pageChipTextActive]}>{page.title}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <TextInput
+              style={styles.pageEditorInput}
+              value={pageDraft}
+              onChangeText={setPageDraft}
+              multiline
+              placeholder="Edit generated page content..."
+              placeholderTextColor={Colors.textMuted}
+            />
+            <TouchableOpacity style={styles.pageSaveButton} onPress={handleSavePageContent}>
+              <Text style={styles.pageSaveButtonText}>Save Page Copy</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+
         <View style={styles.generateSection}>
           <Text style={styles.sectionTitle}>Generate New</Text>
           <TextInput
@@ -349,6 +399,59 @@ const styles = StyleSheet.create({
   contentContainer: {
     padding: 16,
     paddingBottom: 32,
+  },
+  pageEditorSection: {
+    marginBottom: 24,
+    backgroundColor: Colors.secondary,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: 14,
+  },
+  pageChipRow: {
+    gap: 8,
+    paddingBottom: 12,
+  },
+  pageChip: {
+    backgroundColor: Colors.tertiary,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginRight: 8,
+  },
+  pageChipActive: {
+    backgroundColor: Colors.accent,
+  },
+  pageChipText: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    fontWeight: '500' as const,
+  },
+  pageChipTextActive: {
+    color: Colors.primary,
+  },
+  pageEditorInput: {
+    backgroundColor: Colors.primary,
+    minHeight: 120,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: 14,
+    color: Colors.text,
+    fontSize: 14,
+    marginBottom: 12,
+    textAlignVertical: 'top',
+  },
+  pageSaveButton: {
+    backgroundColor: Colors.accent,
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  pageSaveButtonText: {
+    color: Colors.primary,
+    fontSize: 14,
+    fontWeight: '600' as const,
   },
   generateSection: {
     marginBottom: 24,
