@@ -1,360 +1,306 @@
-import React, { useState, useCallback } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
+  Modal,
   ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
   TouchableOpacity,
-  Animated,
+  View,
 } from 'react-native';
 import {
-  TrendingUp,
-  TrendingDown,
-  Minus,
-  Flame,
-  Target,
-  CheckCircle2,
-  RefreshCw,
-  Calendar,
-  ArrowRight,
   BarChart3,
   Eye,
-  MousePointer,
   MessageSquare,
+  MousePointer,
   Phone,
   ShoppingCart,
+  Target,
+  TrendingDown,
+  TrendingUp,
+  Minus,
+  X,
 } from 'lucide-react-native';
-import { useBusiness } from '@/store/BusinessContext';
-import Colors from '@/constants/colors';
-import { WeeklyReview } from '@/types/business';
-import { BrandWatermark } from '@/components/brand';
-import { useAutonomousOS } from '@/hooks/useAutonomousOS';
-import { ReviewService } from '@/core/services/ReviewService';
+import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
+import Colors from '@/constants/colors';
+import { useBusiness } from '@/store/BusinessContext';
+import { Metrics } from '@/types/business';
 
 const BOTTLENECK_LABELS: Record<string, string> = {
-  'traffic': 'Traffic',
-  'conversion': 'Conversion',
-  'pricing': 'Pricing',
+  traffic: 'Traffic',
+  conversion: 'Conversion',
+  pricing: 'Pricing',
   'follow-up': 'Follow-up',
-  'operations': 'Operations',
+  operations: 'Operations',
 };
 
 const BOTTLENECK_COLORS: Record<string, string> = {
-  'traffic': '#3B82F6',
-  'conversion': '#F59E0B',
-  'pricing': '#EF4444',
-  'follow-up': '#8B5CF6',
-  'operations': '#6B7280',
+  traffic: '#2563EB',
+  conversion: '#F59E0B',
+  pricing: '#EF4444',
+  'follow-up': '#7C3AED',
+  operations: '#6B7280',
 };
 
-const FOCUS_COLORS: Record<string, string> = {
-  'leads': '#3B82F6',
-  'content': '#8B5CF6',
-  'outreach': '#EC4899',
-  'conversion': '#F59E0B',
-  'pricing': '#EF4444',
-  'fulfillment': '#6B7280',
-  'systems': '#14B8A6',
-  'brand expansion': '#F97316',
-};
+const FIELD_CONFIG = [
+  { key: 'views', label: 'Views', icon: Eye },
+  { key: 'clicks', label: 'Clicks', icon: MousePointer },
+  { key: 'messages', label: 'Messages', icon: MessageSquare },
+  { key: 'calls', label: 'Calls', icon: Phone },
+  { key: 'sales', label: 'Sales', icon: ShoppingCart },
+] as const;
+
+type MetricFieldKey = (typeof FIELD_CONFIG)[number]['key'];
 
 function DeltaIndicator({ value }: { value: number }) {
   if (value > 0) {
     return (
-      <View style={[styles.deltaPill, { backgroundColor: '#10B98118' }]}>
-        <TrendingUp size={10} color="#10B981" />
+      <View style={[styles.deltaPill, styles.deltaPositive]}>
+        <TrendingUp size={12} color="#10B981" />
         <Text style={[styles.deltaText, { color: '#10B981' }]}>+{value}%</Text>
       </View>
     );
   }
   if (value < 0) {
     return (
-      <View style={[styles.deltaPill, { backgroundColor: '#EF444418' }]}>
-        <TrendingDown size={10} color="#EF4444" />
+      <View style={[styles.deltaPill, styles.deltaNegative]}>
+        <TrendingDown size={12} color="#EF4444" />
         <Text style={[styles.deltaText, { color: '#EF4444' }]}>{value}%</Text>
       </View>
     );
   }
   return (
-    <View style={[styles.deltaPill, { backgroundColor: '#6B728018' }]}>
-      <Minus size={10} color="#6B7280" />
-      <Text style={[styles.deltaText, { color: '#6B7280' }]}>0%</Text>
+    <View style={styles.deltaPill}>
+      <Minus size={12} color={Colors.textMuted} />
+      <Text style={styles.deltaText}>0%</Text>
     </View>
   );
 }
 
-function MetricRow({ icon, label, current, prior, delta }: {
-  icon: React.ReactNode;
-  label: string;
-  current: number;
-  prior: number;
-  delta: number;
-}) {
-  return (
-    <View style={styles.metricRow}>
-      <View style={styles.metricLeft}>
-        {icon}
-        <Text style={styles.metricLabel}>{label}</Text>
-      </View>
-      <View style={styles.metricRight}>
-        <Text style={styles.metricCurrent}>{current}</Text>
-        <Text style={styles.metricPrior}>vs {prior}</Text>
-        <DeltaIndicator value={delta} />
-      </View>
-    </View>
-  );
-}
-
-function ReviewCard({ review, isLatest }: { review: WeeklyReview; isLatest: boolean }) {
-  const periodStart = new Date(review.periodStart).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  const periodEnd = new Date(review.periodEnd).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  const bnColor = review.bottleneckCurrent ? (BOTTLENECK_COLORS[review.bottleneckCurrent] || Colors.accent) : Colors.textMuted;
-
-  return (
-    <View style={[styles.reviewCard, isLatest && styles.reviewCardLatest]}>
-      <View style={styles.reviewHeader}>
-        <View style={styles.reviewPeriod}>
-          <Calendar size={14} color={Colors.textMuted} />
-          <Text style={styles.reviewPeriodText}>{periodStart} – {periodEnd}</Text>
-        </View>
-        {isLatest && (
-          <View style={styles.latestBadge}>
-            <Text style={styles.latestBadgeText}>Latest</Text>
-          </View>
-        )}
-      </View>
-
-      <View style={styles.statsRow}>
-        <View style={styles.statBlock}>
-          <Flame size={16} color={review.streak > 0 ? '#F97316' : Colors.textMuted} />
-          <Text style={styles.statBlockValue}>{review.streak}d</Text>
-          <Text style={styles.statBlockLabel}>Streak</Text>
-        </View>
-        <View style={styles.statDivider} />
-        <View style={styles.statBlock}>
-          <CheckCircle2 size={16} color={review.directivesCompleted > 0 ? Colors.accent : Colors.textMuted} />
-          <Text style={styles.statBlockValue}>{review.directivesCompleted}</Text>
-          <Text style={styles.statBlockLabel}>Completed</Text>
-        </View>
-        <View style={styles.statDivider} />
-        <View style={styles.statBlock}>
-          <Target size={16} color={review.consistencyScore > 50 ? Colors.accent : Colors.textMuted} />
-          <Text style={styles.statBlockValue}>{review.consistencyScore}</Text>
-          <Text style={styles.statBlockLabel}>Score</Text>
-        </View>
-      </View>
-
-      <View style={styles.metricsSection}>
-        <Text style={styles.sectionLabel}>METRICS</Text>
-        <MetricRow
-          icon={<Eye size={14} color="#3B82F6" />}
-          label="Views"
-          current={review.metricsTotals.views}
-          prior={review.metricsPrior.views}
-          delta={review.deltas.views}
-        />
-        <MetricRow
-          icon={<MousePointer size={14} color="#8B5CF6" />}
-          label="Clicks"
-          current={review.metricsTotals.clicks}
-          prior={review.metricsPrior.clicks}
-          delta={review.deltas.clicks}
-        />
-        <MetricRow
-          icon={<MessageSquare size={14} color="#EC4899" />}
-          label="Messages"
-          current={review.metricsTotals.messages}
-          prior={review.metricsPrior.messages}
-          delta={review.deltas.messages}
-        />
-        <MetricRow
-          icon={<Phone size={14} color="#F59E0B" />}
-          label="Calls"
-          current={review.metricsTotals.calls}
-          prior={review.metricsPrior.calls}
-          delta={review.deltas.calls}
-        />
-        <MetricRow
-          icon={<ShoppingCart size={14} color="#10B981" />}
-          label="Sales"
-          current={review.metricsTotals.sales}
-          prior={review.metricsPrior.sales}
-          delta={review.deltas.sales}
-        />
-      </View>
-
-      <View style={styles.bottleneckSection}>
-        <Text style={styles.sectionLabel}>BOTTLENECK</Text>
-        <View style={styles.bottleneckRow}>
-          {review.bottleneckCurrent ? (
-            <View style={[styles.bottleneckBadge, { backgroundColor: bnColor + '18', borderColor: bnColor + '40' }]}>
-              <Target size={12} color={bnColor} />
-              <Text style={[styles.bottleneckBadgeText, { color: bnColor }]}>
-                {BOTTLENECK_LABELS[review.bottleneckCurrent] || review.bottleneckCurrent}
-              </Text>
-            </View>
-          ) : (
-            <Text style={styles.noBottleneckText}>No diagnosis</Text>
-          )}
-          {review.bottleneckChanged && (
-            <View style={styles.changedBadge}>
-              <ArrowRight size={10} color="#F59E0B" />
-              <Text style={styles.changedBadgeText}>Changed</Text>
-            </View>
-          )}
-        </View>
-        {review.bottleneckPrior && review.bottleneckChanged && (
-          <Text style={styles.bottleneckShift}>
-            Was: {BOTTLENECK_LABELS[review.bottleneckPrior] || review.bottleneckPrior}
-          </Text>
-        )}
-      </View>
-
-      <View style={styles.focusSection}>
-        <Text style={styles.sectionLabel}>NEXT WEEK FOCUS</Text>
-        {review.nextWeekFocus.map((priority, idx) => {
-          const focusColor = FOCUS_COLORS[priority.focusArea] || Colors.accent;
-          return (
-            <View key={idx} style={styles.focusItem}>
-              <View style={styles.focusItemHeader}>
-                <View style={[styles.focusNumber, { backgroundColor: focusColor + '20' }]}>
-                  <Text style={[styles.focusNumberText, { color: focusColor }]}>{idx + 1}</Text>
-                </View>
-                <Text style={styles.focusTitle}>{priority.title}</Text>
-              </View>
-              <Text style={styles.focusReason}>{priority.reason}</Text>
-              <View style={[styles.focusAreaTag, { backgroundColor: focusColor + '15', borderColor: focusColor + '30' }]}>
-                <Text style={[styles.focusAreaText, { color: focusColor }]}>{priority.focusArea}</Text>
-              </View>
-            </View>
-          );
-        })}
-      </View>
-    </View>
-  );
-}
-
-export default function WeeklyReviewScreen() {
+export default function IntelScreen() {
   const {
     activeProject,
     activeProjectId,
+    metrics,
+    currentBottleneck,
+    executionStats,
     weeklyReviews,
     generateWeeklyReview,
     isGeneratingReview,
+    addMetrics,
   } = useBusiness();
 
-  const [spinAnim] = useState(() => new Animated.Value(0));
-  const [reviewRefresh, setReviewRefresh] = useState(0);
-  const autonomousSnapshot = useAutonomousOS(activeProject, []);
-
-  const handleGenerate = useCallback(() => {
-    if (!activeProjectId || isGeneratingReview) return;
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-
-    Animated.loop(
-      Animated.timing(spinAnim, {
-        toValue: 1,
-        duration: 800,
-        useNativeDriver: true,
-      })
-    ).start();
-
-    generateWeeklyReview(activeProjectId);
-
-    setTimeout(() => {
-      spinAnim.stopAnimation();
-      spinAnim.setValue(0);
-    }, 1200);
-  }, [activeProjectId, isGeneratingReview, generateWeeklyReview, spinAnim]);
-
-  const handleRequestReview = useCallback(() => {
-    if (!activeProject) return;
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    ReviewService.requestReview({
-      business_id: activeProject.id,
-      vertical_id: activeProject.businessType.toLowerCase().includes('fitness') ? 'fitness' : activeProject.businessType.toLowerCase().includes('auto') ? 'automotive' : 'home-services',
-      source: 'google',
-    });
-    setReviewRefresh((value) => value + 1);
-  }, [activeProject]);
-
-  const spin = spinAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0deg', '360deg'],
+  const [isMetricsModalOpen, setIsMetricsModalOpen] = useState<boolean>(false);
+  const [draft, setDraft] = useState<Record<MetricFieldKey | 'notes', string>>({
+    views: '',
+    clicks: '',
+    messages: '',
+    calls: '',
+    sales: '',
+    notes: '',
   });
 
-  const sortedReviews = [...weeklyReviews].sort(
-    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-  );
+  const latestReview = weeklyReviews.length > 0
+    ? [...weeklyReviews].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0]
+    : null;
+
+  const insightSentence = useMemo(() => {
+    if (!currentBottleneck) return 'SKYFORGE is waiting for enough signal to diagnose your business clearly.';
+    if (currentBottleneck.category === 'traffic') return 'You need more qualified attention entering the top of the funnel.';
+    if (currentBottleneck.category === 'conversion') return 'People are showing interest, but friction is stopping them from buying.';
+    if (currentBottleneck.category === 'pricing') return 'Your offer value and price framing need better alignment.';
+    if (currentBottleneck.category === 'follow-up') return 'Revenue is leaking after the first touch because follow-up is too slow or too weak.';
+    return 'Execution is being constrained by process and delivery friction.';
+  }, [currentBottleneck]);
+
+  const saveMetrics = () => {
+    if (!activeProjectId) return;
+    const now = new Date();
+    const payload: Metrics = {
+      id: `${Date.now()}`,
+      projectId: activeProjectId,
+      date: now.toISOString().split('T')[0],
+      views: Number(draft.views) || 0,
+      clicks: Number(draft.clicks) || 0,
+      messages: Number(draft.messages) || 0,
+      calls: Number(draft.calls) || 0,
+      sales: Number(draft.sales) || 0,
+      notes: draft.notes || undefined,
+    };
+
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    addMetrics(payload);
+    setDraft({ views: '', clicks: '', messages: '', calls: '', sales: '', notes: '' });
+    setIsMetricsModalOpen(false);
+  };
 
   if (!activeProject) {
     return (
       <View style={styles.emptyContainer}>
-        <BarChart3 size={48} color={Colors.textMuted} />
-        <Text style={styles.emptyTitle}>No Project Selected</Text>
-        <Text style={styles.emptyText}>Select a project to view weekly reviews</Text>
+        <BarChart3 size={42} color={Colors.textMuted} />
+        <Text style={styles.emptyTitle}>No active intel stream</Text>
+        <Text style={styles.emptyText}>Select a project to analyze metrics and weekly review data.</Text>
       </View>
     );
   }
 
+  const bottleneckColor = currentBottleneck ? BOTTLENECK_COLORS[currentBottleneck.category] ?? Colors.accent : Colors.textMuted;
+  const bottleneckLabel = currentBottleneck ? BOTTLENECK_LABELS[currentBottleneck.category] ?? currentBottleneck.category : 'Calibrating';
+
   return (
     <View style={styles.container}>
-      <BrandWatermark opacity={0.02} size={240} position="center" />
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.headerSection}>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <View style={styles.header}>
           <View>
-            <Text style={styles.headerTitle}>Weekly Review</Text>
-            <Text style={styles.headerSubtitle}>{activeProject.name}</Text>
+            <Text style={styles.kicker}>INTEL</Text>
+            <Text style={styles.title}>Know the real bottleneck.</Text>
+            <Text style={styles.subtitle}>Metrics, weekly review, and signal clarity in one place.</Text>
           </View>
-          <TouchableOpacity
-            style={[styles.generateButton, isGeneratingReview && styles.generateButtonDisabled]}
-            onPress={handleGenerate}
-            disabled={isGeneratingReview}
-          >
-            <Animated.View style={{ transform: [{ rotate: spin }] }}>
-              <RefreshCw size={16} color={isGeneratingReview ? Colors.textMuted : Colors.primary} />
-            </Animated.View>
-            <Text style={[styles.generateButtonText, isGeneratingReview && styles.generateButtonTextDisabled]}>
-              {isGeneratingReview ? 'Generating...' : 'Generate'}
-            </Text>
+          <TouchableOpacity style={styles.headerButton} onPress={() => setIsMetricsModalOpen(true)}>
+            <Text style={styles.headerButtonText}>+ LOG METRICS</Text>
           </TouchableOpacity>
         </View>
 
-        {autonomousSnapshot ? (
-          <View style={styles.autonomousCard}>
-            <View style={styles.autonomousRow}>
-              <Text style={styles.autonomousLabel}>Review requests</Text>
-              <Text style={styles.autonomousValue}>{autonomousSnapshot.reviews.length + reviewRefresh}</Text>
-            </View>
-            <View style={styles.autonomousRow}>
-              <Text style={styles.autonomousLabel}>Lead records</Text>
-              <Text style={styles.autonomousValue}>{autonomousSnapshot.leads.length}</Text>
-            </View>
-            <TouchableOpacity style={styles.requestReviewButton} onPress={handleRequestReview}>
-              <Text style={styles.requestReviewText}>Trigger Review Request</Text>
+        <View style={styles.bottleneckCard}>
+          <Text style={styles.sectionLabel}>BOTTLENECK DIAGNOSIS</Text>
+          <View style={[styles.bottleneckPill, { backgroundColor: `${bottleneckColor}18`, borderColor: `${bottleneckColor}44` }]}>
+            <Target size={16} color={bottleneckColor} />
+            <Text style={[styles.bottleneckPillText, { color: bottleneckColor }]}>{bottleneckLabel}</Text>
+          </View>
+          <View style={styles.confidenceArcTrack}>
+            <View style={[styles.confidenceArcFill, { width: `${currentBottleneck?.confidence ?? 0}%`, backgroundColor: bottleneckColor }]} />
+          </View>
+          <Text style={styles.confidenceLabel}>{currentBottleneck ? `${currentBottleneck.confidence}% confidence` : 'Waiting for more data'}</Text>
+          <Text style={styles.reasoning}>{currentBottleneck?.reasoning ?? 'Log more activity to activate diagnosis.'}</Text>
+          <Text style={styles.meaningHeader}>What this means for your business</Text>
+          <Text style={styles.meaningText}>{insightSentence}</Text>
+          <Text style={styles.changeText}>
+            {latestReview?.bottleneckChanged
+              ? `↑ Changed from ${latestReview.bottleneckPrior ? BOTTLENECK_LABELS[latestReview.bottleneckPrior] : 'previous pattern'}`
+              : '→ Stable'}
+          </Text>
+        </View>
+
+        <View style={styles.snapshotGrid}>
+          <View style={styles.snapshotCard}>
+            <Text style={styles.snapshotValue}>{executionStats.streak}</Text>
+            <Text style={styles.snapshotLabel}>Streak</Text>
+          </View>
+          <View style={styles.snapshotCard}>
+            <Text style={styles.snapshotValue}>{executionStats.consistencyScore}</Text>
+            <Text style={styles.snapshotLabel}>Consistency</Text>
+          </View>
+          <View style={styles.snapshotCard}>
+            <Text style={styles.snapshotValue}>{executionStats.weeklyCompletionPct}%</Text>
+            <Text style={styles.snapshotLabel}>Weekly completion</Text>
+          </View>
+        </View>
+
+        <View style={styles.reviewCard}>
+          <View style={styles.reviewHeader}>
+            <Text style={styles.reviewTitle}>Weekly Review</Text>
+            <TouchableOpacity style={styles.generateButton} onPress={() => activeProjectId && generateWeeklyReview(activeProjectId)} disabled={isGeneratingReview}>
+              <Text style={styles.generateButtonText}>{isGeneratingReview ? 'Generating...' : 'Generate'}</Text>
             </TouchableOpacity>
           </View>
-        ) : null}
 
-        {sortedReviews.length === 0 ? (
-          <View style={styles.emptyState}>
-            <BarChart3 size={40} color={Colors.textMuted} />
-            <Text style={styles.emptyStateTitle}>No reviews yet</Text>
-            <Text style={styles.emptyStateText}>
-              Tap Generate to create your first weekly review based on your metrics and directive history.
-            </Text>
-          </View>
-        ) : (
-          sortedReviews.map((review, idx) => (
-            <ReviewCard key={review.id} review={review} isLatest={idx === 0} />
-          ))
-        )}
+          {latestReview ? (
+            <>
+              <View style={styles.metricGrid}>
+                {FIELD_CONFIG.map((field) => {
+                  const Icon = field.icon;
+                  const delta = latestReview.deltas[field.key];
+                  const total = latestReview.metricsTotals[field.key];
+                  return (
+                    <View key={field.key} style={styles.metricCard}>
+                      <View style={styles.metricCardHeader}>
+                        <Icon size={14} color={Colors.accent} />
+                        <Text style={styles.metricCardLabel}>{field.label}</Text>
+                      </View>
+                      <Text style={styles.metricCardValue}>{total}</Text>
+                      <DeltaIndicator value={delta} />
+                    </View>
+                  );
+                })}
+              </View>
+
+              <View style={styles.secondaryStatsRow}>
+                <Text style={styles.secondaryStat}>Directives completed: {latestReview.directivesCompleted}</Text>
+                <Text style={styles.secondaryStat}>Streak: {latestReview.streak}</Text>
+              </View>
+
+              <Text style={styles.focusHeader}>Next week focus</Text>
+              {latestReview.nextWeekFocus.map((item, index) => (
+                <View key={`${item.title}-${index}`} style={styles.focusItem}>
+                  <Text style={styles.focusIndex}>{index + 1}</Text>
+                  <View style={styles.focusContent}>
+                    <Text style={styles.focusTitle}>{item.title}</Text>
+                    <Text style={styles.focusReason}>{item.reason}</Text>
+                  </View>
+                </View>
+              ))}
+
+              <TouchableOpacity style={styles.planButton}>
+                <LinearGradient colors={[Colors.brandGradient.start, Colors.brandGradient.middle, Colors.brandGradient.end]} style={styles.planButtonGradient}>
+                  <Text style={styles.planButtonText}>GENERATE NEXT WEEK&apos;S DIRECTIVE PLAN</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <Text style={styles.reviewEmpty}>Generate your first weekly review to unlock delta analysis and next-week focus priorities.</Text>
+          )}
+        </View>
       </ScrollView>
+
+      <Modal visible={isMetricsModalOpen} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setIsMetricsModalOpen(false)}>
+        <View style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Log metrics</Text>
+            <TouchableOpacity onPress={() => setIsMetricsModalOpen(false)}>
+              <X size={22} color={Colors.text} />
+            </TouchableOpacity>
+          </View>
+          <ScrollView contentContainerStyle={styles.modalContent}>
+            {FIELD_CONFIG.map((field) => {
+              const Icon = field.icon;
+              return (
+                <View key={field.key} style={styles.inputCard}>
+                  <View style={styles.inputHeader}>
+                    <Icon size={18} color={Colors.accent} />
+                    <Text style={styles.inputLabel}>{field.label}</Text>
+                  </View>
+                  <TextInput
+                    style={styles.input}
+                    value={draft[field.key]}
+                    onChangeText={(value) => setDraft((current) => ({ ...current, [field.key]: value }))}
+                    keyboardType="numeric"
+                    placeholder="0"
+                    placeholderTextColor={Colors.textMuted}
+                  />
+                </View>
+              );
+            })}
+            <View style={styles.inputCard}>
+              <Text style={styles.inputLabel}>Notes</Text>
+              <TextInput
+                style={styles.notesInput}
+                value={draft.notes}
+                onChangeText={(value) => setDraft((current) => ({ ...current, notes: value }))}
+                multiline
+                placeholder="What happened today?"
+                placeholderTextColor={Colors.textMuted}
+                textAlignVertical="top"
+              />
+            </View>
+          </ScrollView>
+          <TouchableOpacity style={styles.logButton} onPress={saveMetrics} testID="intel-log-metrics-button">
+            <LinearGradient colors={[Colors.brandGradient.start, Colors.brandGradient.middle, Colors.brandGradient.end]} style={styles.logButtonGradient}>
+              <Text style={styles.logButtonText}>LOG IT</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -364,342 +310,377 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.primary,
   },
+  content: {
+    padding: 16,
+    paddingBottom: 120,
+  },
   emptyContainer: {
     flex: 1,
     backgroundColor: Colors.primary,
-    justifyContent: 'center',
     alignItems: 'center',
-    padding: 40,
+    justifyContent: 'center',
+    padding: 32,
   },
   emptyTitle: {
-    fontSize: 18,
-    fontWeight: '600' as const,
     color: Colors.text,
-    marginTop: 16,
+    fontSize: 18,
+    fontWeight: '700' as const,
+    marginTop: 14,
     marginBottom: 8,
   },
   emptyText: {
-    fontSize: 14,
     color: Colors.textSecondary,
+    fontSize: 14,
     textAlign: 'center',
   },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    padding: 16,
-    paddingBottom: 40,
-  },
-  headerSection: {
+  header: {
     flexDirection: 'row',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 18,
   },
-  autonomousCard: {
+  kicker: {
+    color: Colors.textMuted,
+    fontSize: 11,
+    fontWeight: '700' as const,
+    letterSpacing: 1.3,
+    marginBottom: 8,
+  },
+  title: {
+    color: Colors.text,
+    fontSize: 28,
+    fontWeight: '800' as const,
+    marginBottom: 8,
+  },
+  subtitle: {
+    color: Colors.textSecondary,
+    fontSize: 14,
+    lineHeight: 20,
+    maxWidth: 260,
+  },
+  headerButton: {
+    minHeight: 42,
+    borderRadius: 12,
+    backgroundColor: Colors.secondary,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerButtonText: {
+    color: Colors.accent,
+    fontSize: 12,
+    fontWeight: '800' as const,
+  },
+  bottleneckCard: {
+    backgroundColor: Colors.secondary,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: 16,
+    marginBottom: 16,
+  },
+  sectionLabel: {
+    color: Colors.textMuted,
+    fontSize: 11,
+    fontWeight: '700' as const,
+    letterSpacing: 1.3,
+    marginBottom: 10,
+  },
+  bottleneckPill: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 14,
+  },
+  bottleneckPillText: {
+    fontSize: 14,
+    fontWeight: '800' as const,
+  },
+  confidenceArcTrack: {
+    height: 10,
+    borderRadius: 999,
+    backgroundColor: Colors.tertiary,
+    overflow: 'hidden',
+    marginBottom: 8,
+  },
+  confidenceArcFill: {
+    height: '100%',
+    borderRadius: 999,
+  },
+  confidenceLabel: {
+    color: Colors.text,
+    fontSize: 13,
+    fontWeight: '700' as const,
+    marginBottom: 10,
+  },
+  reasoning: {
+    color: Colors.textSecondary,
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 14,
+  },
+  meaningHeader: {
+    color: Colors.text,
+    fontSize: 14,
+    fontWeight: '700' as const,
+    marginBottom: 6,
+  },
+  meaningText: {
+    color: Colors.textSecondary,
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 10,
+  },
+  changeText: {
+    color: Colors.textMuted,
+    fontSize: 13,
+  },
+  snapshotGrid: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 16,
+  },
+  snapshotCard: {
+    flex: 1,
     backgroundColor: Colors.secondary,
     borderRadius: 14,
     borderWidth: 1,
     borderColor: Colors.border,
-    padding: 16,
-    marginBottom: 16,
-    gap: 12,
+    padding: 14,
   },
-  autonomousRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+  snapshotValue: {
+    color: Colors.text,
+    fontSize: 24,
+    fontWeight: '800' as const,
+    marginBottom: 6,
   },
-  autonomousLabel: {
-    fontSize: 13,
+  snapshotLabel: {
     color: Colors.textSecondary,
-  },
-  autonomousValue: {
-    fontSize: 18,
-    fontWeight: '700' as const,
-    color: Colors.text,
-  },
-  requestReviewButton: {
-    backgroundColor: Colors.accent,
-    borderRadius: 10,
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  requestReviewText: {
-    color: Colors.primary,
-    fontSize: 13,
-    fontWeight: '700' as const,
-  },
-  headerTitle: {
-    fontSize: 22,
-    fontWeight: '700' as const,
-    color: Colors.text,
-  },
-  headerSubtitle: {
-    fontSize: 13,
-    color: Colors.textMuted,
-    marginTop: 2,
-  },
-  generateButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: Colors.accent,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 10,
-  },
-  generateButtonDisabled: {
-    backgroundColor: Colors.tertiary,
-  },
-  generateButtonText: {
-    fontSize: 13,
-    fontWeight: '600' as const,
-    color: Colors.primary,
-  },
-  generateButtonTextDisabled: {
-    color: Colors.textMuted,
-  },
-  emptyState: {
-    alignItems: 'center',
-    paddingVertical: 60,
-    backgroundColor: Colors.secondary,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    padding: 32,
-  },
-  emptyStateTitle: {
-    fontSize: 17,
-    fontWeight: '600' as const,
-    color: Colors.text,
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  emptyStateText: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-    textAlign: 'center',
-    lineHeight: 20,
-    paddingHorizontal: 20,
+    fontSize: 12,
   },
   reviewCard: {
     backgroundColor: Colors.secondary,
     borderRadius: 16,
-    padding: 18,
-    marginBottom: 16,
     borderWidth: 1,
     borderColor: Colors.border,
-    gap: 16,
-  },
-  reviewCardLatest: {
-    borderColor: Colors.accent + '40',
+    padding: 16,
   },
   reviewHeader: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    marginBottom: 14,
   },
-  reviewPeriod: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  reviewPeriodText: {
-    fontSize: 13,
-    color: Colors.textSecondary,
-    fontWeight: '500' as const,
-  },
-  latestBadge: {
-    backgroundColor: Colors.accent + '20',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  latestBadgeText: {
-    fontSize: 10,
-    fontWeight: '700' as const,
-    color: Colors.accent,
-    textTransform: 'uppercase' as const,
-    letterSpacing: 0.5,
-  },
-  statsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.tertiary,
-    borderRadius: 12,
-    padding: 14,
-  },
-  statBlock: {
-    flex: 1,
-    alignItems: 'center',
-    gap: 4,
-  },
-  statBlockValue: {
+  reviewTitle: {
+    color: Colors.text,
     fontSize: 18,
     fontWeight: '700' as const,
-    color: Colors.text,
   },
-  statBlockLabel: {
-    fontSize: 10,
-    color: Colors.textMuted,
-    textTransform: 'uppercase' as const,
-    letterSpacing: 0.5,
-  },
-  statDivider: {
-    width: 1,
-    height: 36,
-    backgroundColor: Colors.border,
-  },
-  metricsSection: {
-    gap: 8,
-  },
-  sectionLabel: {
-    fontSize: 10,
-    fontWeight: '700' as const,
-    color: Colors.textMuted,
-    letterSpacing: 1,
-    marginBottom: 4,
-  },
-  metricRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  generateButton: {
+    minHeight: 38,
+    borderRadius: 10,
+    backgroundColor: Colors.accent,
+    paddingHorizontal: 12,
     alignItems: 'center',
-    paddingVertical: 6,
+    justifyContent: 'center',
   },
-  metricLeft: {
+  generateButtonText: {
+    color: Colors.primary,
+    fontSize: 12,
+    fontWeight: '800' as const,
+  },
+  metricGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginBottom: 16,
+  },
+  metricCard: {
+    width: '48%',
+    backgroundColor: Colors.tertiary,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: 12,
+  },
+  metricCardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    marginBottom: 10,
   },
-  metricLabel: {
-    fontSize: 13,
+  metricCardLabel: {
     color: Colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '700' as const,
   },
-  metricRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  metricCurrent: {
-    fontSize: 14,
-    fontWeight: '600' as const,
+  metricCardValue: {
     color: Colors.text,
-    minWidth: 28,
-    textAlign: 'right' as const,
-  },
-  metricPrior: {
-    fontSize: 11,
-    color: Colors.textMuted,
-    minWidth: 36,
+    fontSize: 20,
+    fontWeight: '800' as const,
+    marginBottom: 8,
   },
   deltaPill: {
+    alignSelf: 'flex-start',
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 3,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-    minWidth: 48,
-    justifyContent: 'center',
+    gap: 4,
+    borderRadius: 999,
+    backgroundColor: Colors.primary,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+  },
+  deltaPositive: {
+    backgroundColor: '#10B98114',
+  },
+  deltaNegative: {
+    backgroundColor: '#EF444414',
   },
   deltaText: {
-    fontSize: 10,
-    fontWeight: '600' as const,
-  },
-  bottleneckSection: {
-    gap: 6,
-  },
-  bottleneckRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  bottleneckBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
-    borderWidth: 1,
-  },
-  bottleneckBadgeText: {
-    fontSize: 12,
-    fontWeight: '600' as const,
-  },
-  noBottleneckText: {
-    fontSize: 12,
     color: Colors.textMuted,
-    fontStyle: 'italic' as const,
-  },
-  changedBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    backgroundColor: '#F59E0B18',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  changedBadgeText: {
-    fontSize: 10,
-    fontWeight: '600' as const,
-    color: '#F59E0B',
-  },
-  bottleneckShift: {
     fontSize: 11,
-    color: Colors.textMuted,
-    fontStyle: 'italic' as const,
-  },
-  focusSection: {
-    gap: 10,
-  },
-  focusItem: {
-    backgroundColor: Colors.tertiary,
-    borderRadius: 10,
-    padding: 12,
-    gap: 6,
-  },
-  focusItemHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  focusNumber: {
-    width: 22,
-    height: 22,
-    borderRadius: 6,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  focusNumberText: {
-    fontSize: 12,
     fontWeight: '700' as const,
   },
-  focusTitle: {
-    fontSize: 14,
-    fontWeight: '600' as const,
+  secondaryStatsRow: {
+    gap: 6,
+    marginBottom: 14,
+  },
+  secondaryStat: {
+    color: Colors.textSecondary,
+    fontSize: 13,
+  },
+  focusHeader: {
     color: Colors.text,
+    fontSize: 15,
+    fontWeight: '700' as const,
+    marginBottom: 12,
+  },
+  focusItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    marginBottom: 12,
+  },
+  focusIndex: {
+    color: Colors.accent,
+    fontSize: 16,
+    fontWeight: '800' as const,
+    width: 20,
+  },
+  focusContent: {
     flex: 1,
   },
+  focusTitle: {
+    color: Colors.text,
+    fontSize: 14,
+    fontWeight: '700' as const,
+    marginBottom: 4,
+  },
   focusReason: {
-    fontSize: 12,
-    color: Colors.textMuted,
-    lineHeight: 17,
-    marginLeft: 30,
+    color: Colors.textSecondary,
+    fontSize: 13,
+    lineHeight: 19,
   },
-  focusAreaTag: {
-    alignSelf: 'flex-start',
-    marginLeft: 30,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 5,
+  reviewEmpty: {
+    color: Colors.textSecondary,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  planButton: {
+    marginTop: 8,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  planButtonGradient: {
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  planButtonText: {
+    color: Colors.text,
+    fontSize: 13,
+    fontWeight: '800' as const,
+    letterSpacing: 0.5,
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: Colors.primary,
+    padding: 16,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 12,
+    marginBottom: 16,
+  },
+  modalTitle: {
+    color: Colors.text,
+    fontSize: 22,
+    fontWeight: '700' as const,
+  },
+  modalContent: {
+    paddingBottom: 20,
+  },
+  inputCard: {
+    backgroundColor: Colors.secondary,
+    borderRadius: 14,
     borderWidth: 1,
+    borderColor: Colors.border,
+    padding: 14,
+    marginBottom: 12,
   },
-  focusAreaText: {
-    fontSize: 10,
-    fontWeight: '600' as const,
-    textTransform: 'capitalize' as const,
+  inputHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 10,
+  },
+  inputLabel: {
+    color: Colors.text,
+    fontSize: 14,
+    fontWeight: '700' as const,
+  },
+  input: {
+    minHeight: 50,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.tertiary,
+    paddingHorizontal: 14,
+    color: Colors.text,
+    fontSize: 16,
+  },
+  notesInput: {
+    minHeight: 120,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.tertiary,
+    padding: 14,
+    color: Colors.text,
+    fontSize: 14,
+  },
+  logButton: {
+    borderRadius: 14,
+    overflow: 'hidden',
+  },
+  logButtonGradient: {
+    minHeight: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logButtonText: {
+    color: Colors.text,
+    fontSize: 14,
+    fontWeight: '800' as const,
+    letterSpacing: 0.5,
   },
 });

@@ -66,6 +66,26 @@ function RootLayoutNav() {
             gestureEnabled: false,
           }} 
         />
+        <Stack.Screen
+          name="memory-log"
+          options={{
+            headerShown: true,
+            title: 'MEMORY LOG',
+            headerStyle: { backgroundColor: Colors.primary },
+            headerTintColor: Colors.text,
+            presentation: 'card',
+          }}
+        />
+        <Stack.Screen
+          name="respondfall"
+          options={{
+            headerShown: true,
+            title: 'RESPONDFALL',
+            headerStyle: { backgroundColor: Colors.primary },
+            headerTintColor: Colors.text,
+            presentation: 'modal',
+          }}
+        />
       </Stack>
     </>
   );

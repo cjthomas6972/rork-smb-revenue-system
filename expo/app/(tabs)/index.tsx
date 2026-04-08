@@ -1,38 +1,37 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  Animated,
   Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import {
   CheckCircle2,
-  Zap,
-  Plus,
   ChevronDown,
-  Clock,
-  X,
+  Circle,
+  Clock3,
+  Flame,
   MoreHorizontal,
+  Plus,
+  Target,
+  X,
   Archive,
   Trash2,
-  Flame,
-  Target,
-  TrendingUp,
-  Circle,
   ChevronRight,
+  ChartNoAxesColumn,
+  Package,
+  Sparkles,
+  PencilLine,
+  AlertTriangle,
 } from 'lucide-react-native';
-import { useBusiness } from '@/store/BusinessContext';
-import { useProjectMemoryStats } from '@/store/MemoryContext';
-import Colors from '@/constants/colors';
-import { DailyDirective } from '@/types/business';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
-import { BrandMicroIcon } from '@/components/brand';
-import MemoryOSWidget from '@/components/MemoryOSWidget';
+import Colors from '@/constants/colors';
+import { useBusiness } from '@/store/BusinessContext';
+import { DailyDirective } from '@/types/business';
 import { useAutonomousOS } from '@/hooks/useAutonomousOS';
 
 const BOTTLENECK_LABELS: Record<string, string> = {
@@ -51,14 +50,9 @@ const BOTTLENECK_COLORS: Record<string, string> = {
   operations: '#6B7280',
 };
 
-const STREAK_MESSAGES = [
-  'Operator streak: {n} day{s}. Keep building.',
-  'Momentum is compounding. {n} day{s} strong.',
-  '{n} day{s} of execution. This is how empires are built.',
-  'Relentless. {n} consecutive day{s}.',
-];
+type ProjectAction = 'archive' | 'delete';
 
-export default function DashboardScreen() {
+export default function TodayScreen() {
   const router = useRouter();
   const {
     projects,
@@ -78,68 +72,13 @@ export default function DashboardScreen() {
     deleteProject,
   } = useBusiness();
 
-  const [isProjectMenuOpen, setIsProjectMenuOpen] = useState(false);
-  const [isProjectActionsOpen, setIsProjectActionsOpen] = useState(false);
+  const [isProjectMenuOpen, setIsProjectMenuOpen] = useState<boolean>(false);
+  const [isProjectActionsOpen, setIsProjectActionsOpen] = useState<boolean>(false);
   const [selectedProjectForActions, setSelectedProjectForActions] = useState<string | null>(null);
-  const [showCompletion, setShowCompletion] = useState(false);
-  const [completionStreak, setCompletionStreak] = useState(0);
+  const [showBlockers, setShowBlockers] = useState<boolean>(false);
 
-  const memoryStats = useProjectMemoryStats(activeProjectId);
   const autonomousSnapshot = useAutonomousOS(activeProject, metrics);
-
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(20)).current;
-  const celebrateAnim = useRef(new Animated.Value(0)).current;
-  const celebrateScale = useRef(new Animated.Value(0.5)).current;
-
-  useEffect(() => {
-    Animated.parallel([
-      Animated.timing(fadeAnim, { toValue: 1, duration: 500, useNativeDriver: true }),
-      Animated.timing(slideAnim, { toValue: 0, duration: 500, useNativeDriver: true }),
-    ]).start();
-  }, [fadeAnim, slideAnim]);
-
-  const handleCompleteDirective = useCallback(() => {
-    if (!activeProject?.dailyDirective) return;
-    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    completeDailyDirective(activeProject.id);
-    setCompletionStreak(executionStats.streak + 1);
-    setShowCompletion(true);
-
-    Animated.parallel([
-      Animated.timing(celebrateAnim, { toValue: 1, duration: 400, useNativeDriver: true }),
-      Animated.spring(celebrateScale, { toValue: 1, friction: 4, tension: 60, useNativeDriver: true }),
-    ]).start();
-
-    setTimeout(() => {
-      Animated.timing(celebrateAnim, { toValue: 0, duration: 300, useNativeDriver: true }).start(() => {
-        setShowCompletion(false);
-        celebrateScale.setValue(0.5);
-      });
-    }, 3000);
-  }, [activeProject, executionStats.streak, completeDailyDirective, celebrateAnim, celebrateScale]);
-
-  const handleToggleStep = useCallback((stepOrder: number) => {
-    if (!activeProject?.dailyDirective || activeProject.dailyDirective.status === 'complete') return;
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-
-    const updatedSteps = activeProject.dailyDirective.steps.map(s =>
-      s.order === stepOrder ? { ...s, done: !s.done } : s
-    );
-    const updatedDirective: DailyDirective = {
-      ...activeProject.dailyDirective,
-      steps: updatedSteps,
-    };
-    updateDailyDirective({ projectId: activeProject.id, directive: updatedDirective });
-  }, [activeProject, updateDailyDirective]);
-
-  const handleGenerateNew = useCallback(() => {
-    if (!activeProject) return;
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const focus = getCurrentFocus();
-    const directive = generateDailyDirective(focus);
-    updateDailyDirective({ projectId: activeProject.id, directive });
-  }, [activeProject, getCurrentFocus, generateDailyDirective, updateDailyDirective]);
+  const activeProjects = useMemo(() => projects.filter((project) => project.status === 'active'), [projects]);
 
   const handleSwitchProject = useCallback((projectId: string) => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -147,263 +86,222 @@ export default function DashboardScreen() {
     setIsProjectMenuOpen(false);
   }, [switchProject]);
 
-  const handleProjectAction = useCallback((action: 'archive' | 'delete', projectId: string) => {
+  const handleProjectAction = useCallback((action: ProjectAction, projectId: string) => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    if (action === 'archive') archiveProject(projectId);
-    else deleteProject(projectId);
+    if (action === 'archive') {
+      archiveProject(projectId);
+    } else {
+      deleteProject(projectId);
+    }
     setIsProjectActionsOpen(false);
     setSelectedProjectForActions(null);
   }, [archiveProject, deleteProject]);
 
+  const handleToggleStep = useCallback((stepOrder: number) => {
+    if (!activeProject?.dailyDirective || activeProject.dailyDirective.status === 'complete') return;
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    const updatedSteps = activeProject.dailyDirective.steps.map((step) => (
+      step.order === stepOrder ? { ...step, done: !step.done } : step
+    ));
+
+    const updatedDirective: DailyDirective = {
+      ...activeProject.dailyDirective,
+      steps: updatedSteps,
+    };
+
+    updateDailyDirective({ projectId: activeProject.id, directive: updatedDirective });
+  }, [activeProject, updateDailyDirective]);
+
+  const handleGenerateMission = useCallback(() => {
+    if (!activeProject) return;
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const directive = generateDailyDirective(getCurrentFocus());
+    updateDailyDirective({ projectId: activeProject.id, directive });
+  }, [activeProject, generateDailyDirective, getCurrentFocus, updateDailyDirective]);
+
+  const handleCompleteDirective = useCallback(() => {
+    if (!activeProject?.dailyDirective) return;
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    completeDailyDirective(activeProject.id);
+    setTimeout(() => {
+      const nextDirective = generateDailyDirective(getCurrentFocus());
+      updateDailyDirective({ projectId: activeProject.id, directive: nextDirective });
+    }, 400);
+  }, [activeProject, completeDailyDirective, generateDailyDirective, getCurrentFocus, updateDailyDirective]);
+
   if (isLoading || isOnboardingComplete === null || !activeProject) {
     return (
       <View style={styles.loadingContainer}>
-        <Text style={styles.loadingText}>Loading...</Text>
+        <Text style={styles.loadingText}>Loading SKYFORGE...</Text>
       </View>
     );
   }
 
   const directive = activeProject.dailyDirective;
-  const isComplete = directive?.status === 'complete';
-  const allStepsDone = directive?.steps.every(s => s.done) ?? false;
-  const stepsCompleted = directive?.steps.filter(s => s.done).length ?? 0;
+  const bnCategory = currentBottleneck?.category ?? 'traffic';
+  const bnColor = BOTTLENECK_COLORS[bnCategory] ?? BOTTLENECK_COLORS.traffic;
+  const bnLabel = BOTTLENECK_LABELS[bnCategory] ?? 'Traffic';
   const totalSteps = directive?.steps.length ?? 0;
-  const stepProgress = totalSteps > 0 ? stepsCompleted / totalSteps : 0;
-
-  const bnCategory = currentBottleneck?.category || 'traffic';
-  const bnColor = BOTTLENECK_COLORS[bnCategory] || '#3B82F6';
-  const bnLabel = BOTTLENECK_LABELS[bnCategory] || 'Traffic';
-  const activeProjects = projects.filter(p => p.status === 'active');
-
-  const getStreakMessage = () => {
-    const n = completionStreak;
-    const s = n === 1 ? '' : 's';
-    const msg = STREAK_MESSAGES[Math.min(n - 1, STREAK_MESSAGES.length - 1)] || STREAK_MESSAGES[0];
-    return msg.replace('{n}', String(n)).replace('{s}', s);
-  };
+  const stepsCompleted = directive?.steps.filter((step) => step.done).length ?? 0;
+  const progress = totalSteps > 0 ? stepsCompleted / totalSteps : 0;
+  const remainingSteps = Math.max(totalSteps - stepsCompleted, 0);
+  const estimatedRemaining = directive ? Math.max(Math.round((directive.timeboxMinutes / Math.max(totalSteps, 1)) * remainingSteps), 0) : 0;
+  const snapshotCards = [
+    {
+      key: 'bottleneck',
+      label: 'Current bottleneck',
+      value: bnLabel,
+      detail: currentBottleneck ? `${currentBottleneck.confidence}% confidence` : 'Calibrating',
+    },
+    {
+      key: 'completion',
+      label: 'Weekly completion',
+      value: `${executionStats.weeklyCompletionPct}%`,
+      detail: 'Execution rate',
+    },
+    {
+      key: 'revenue',
+      label: 'Revenue per directive',
+      value: executionStats.revenuePerDirective !== null ? executionStats.revenuePerDirective.toFixed(1) : 'Calculating...',
+      detail: 'Sales efficiency',
+    },
+  ];
 
   return (
     <View style={styles.container}>
-      <View style={styles.projectBar}>
-        <TouchableOpacity
-          style={styles.projectSelector}
-          onPress={() => setIsProjectMenuOpen(true)}
-        >
-          <Text style={styles.projectName} numberOfLines={1}>{activeProject.name}</Text>
+      <View style={styles.header}>
+        <View style={styles.wordmarkWrap}>
+          <Text style={styles.wordmark}>SKYFORGE</Text>
+        </View>
+        <TouchableOpacity style={styles.projectSelector} onPress={() => setIsProjectMenuOpen(true)} testID="today-project-selector">
+          <Text style={styles.projectSelectorText} numberOfLines={1}>{activeProject.name}</Text>
           <ChevronDown size={14} color={Colors.textMuted} />
         </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.newProjectButton}
-          onPress={() => router.push('/onboarding' as never)}
-        >
-          <Plus size={18} color={Colors.accent} />
-        </TouchableOpacity>
+        <View style={styles.streakPill}>
+          <Flame size={14} color={executionStats.streak > 0 ? Colors.brand.fireOrange : Colors.textMuted} />
+          <Text style={[styles.streakText, executionStats.streak > 0 && styles.streakTextHot]}>{executionStats.streak}</Text>
+        </View>
       </View>
 
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
-          <View style={styles.bottleneckHero}>
-            <View style={styles.bottleneckHeroTop}>
-              <Text style={styles.heroLabel}>FIX TODAY</Text>
-              <View style={styles.streakPill}>
-                <Flame size={12} color={executionStats.streak > 0 ? '#F97316' : Colors.textMuted} />
-                <Text style={[styles.streakText, executionStats.streak > 0 && { color: '#F97316' }]}>
-                  {executionStats.streak}d
-                </Text>
-              </View>
-            </View>
+      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <View style={styles.sectionHeaderWrap}>
+          <Text style={styles.sectionKicker}>TODAY</Text>
+          <Text style={styles.headline}>Fix today&apos;s bottleneck.</Text>
+          <Text style={styles.subheadline}>{autonomousSnapshot?.summary?.headline ?? 'One decisive move. Minimal noise. Maximum progress.'}</Text>
+        </View>
 
-            <View style={styles.bottleneckRow}>
-              <View style={[styles.bottleneckDot, { backgroundColor: bnColor }]} />
-              <Text style={[styles.bottleneckName, { color: bnColor }]}>{bnLabel}</Text>
-              {currentBottleneck && (
-                <View style={[styles.confidencePill, { borderColor: bnColor + '40' }]}>
-                  <Text style={[styles.confidenceText, { color: bnColor }]}>{currentBottleneck.confidence}%</Text>
-                </View>
-              )}
-            </View>
-
-            {currentBottleneck && (
-              <Text style={styles.bottleneckReasoning} numberOfLines={2}>
-                {currentBottleneck.reasoning}
-              </Text>
-            )}
-
-            <View style={styles.statsRow}>
-              <View style={styles.statItem}>
-                <Text style={styles.statValue}>{executionStats.consistencyScore}</Text>
-                <Text style={styles.statLabel}>Score</Text>
-              </View>
-              <View style={styles.statDivider} />
-              <View style={styles.statItem}>
-                <Text style={styles.statValue}>{executionStats.weeklyCompletionPct}%</Text>
-                <Text style={styles.statLabel}>Weekly</Text>
-              </View>
-              <View style={styles.statDivider} />
-              <View style={styles.statItem}>
-                <Text style={styles.statValue}>
-                  {executionStats.revenuePerDirective !== null ? executionStats.revenuePerDirective.toFixed(1) : '—'}
-                </Text>
-                <Text style={styles.statLabel}>Rev/Task</Text>
-              </View>
-            </View>
-          </View>
-
-          {autonomousSnapshot?.summary ? (
-            <View style={styles.summaryCard}>
-              <View style={styles.summaryHeader}>
-                <BrandMicroIcon size={14} color={Colors.accent} />
-                <Text style={styles.summaryLabel}>Founder Summary</Text>
-              </View>
-              <Text style={styles.summaryHeadline}>{autonomousSnapshot.summary.headline}</Text>
-              <View style={styles.summaryPills}>
-                {autonomousSnapshot.summary.priorities.slice(0, 3).map((priority, index) => (
-                  <View key={`${priority}-${index}`} style={styles.summaryPill}>
-                    <Text style={styles.summaryPillText}>{priority}</Text>
+        <View style={[styles.directiveCard, { borderLeftColor: bnColor }]}> 
+          <LinearGradient
+            colors={['#12121A', '#1A1A25']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.directiveGradient}
+          >
+            {directive ? (
+              <>
+                <View style={styles.directiveHeader}>
+                  <View style={styles.directiveHeaderTextWrap}>
+                    <Text style={styles.directiveTitle}>{directive.title}</Text>
+                    <Text style={styles.directiveObjective}>{directive.objective || directive.description}</Text>
                   </View>
-                ))}
-              </View>
-            </View>
-          ) : null}
-
-          {directive && !isComplete ? (
-            <View style={styles.directiveCard}>
-              <View style={styles.directiveTop}>
-                <View style={styles.directiveBadge}>
-                  <Zap size={12} color={Colors.primary} />
-                  <Text style={styles.directiveBadgeText}>Daily Directive</Text>
+                  <View style={styles.timePill}>
+                    <Clock3 size={12} color={Colors.accent} />
+                    <Text style={styles.timePillText}>{estimatedRemaining > 0 ? `${estimatedRemaining} min left` : directive.estimatedTime}</Text>
+                  </View>
                 </View>
-                <View style={styles.timeboxPill}>
-                  <Clock size={12} color={Colors.textMuted} />
-                  <Text style={styles.timeboxText}>{directive.timeboxMinutes}m</Text>
+
+                <View style={styles.stepsWrap}>
+                  {directive.steps.map((step) => (
+                    <TouchableOpacity
+                      key={step.order}
+                      style={styles.stepRow}
+                      activeOpacity={0.8}
+                      onPress={() => handleToggleStep(step.order)}
+                      testID={`directive-step-${step.order}`}
+                    >
+                      {step.done ? (
+                        <CheckCircle2 size={20} color={Colors.accent} />
+                      ) : (
+                        <Circle size={20} color={Colors.borderLight} />
+                      )}
+                      <Text style={[styles.stepText, step.done && styles.stepTextDone]}>{step.action}</Text>
+                    </TouchableOpacity>
+                  ))}
                 </View>
-              </View>
 
-              <Text style={styles.directiveTitle}>{directive.title}</Text>
-
-              <View style={styles.objectiveRow}>
-                <Target size={13} color={Colors.accent} />
-                <Text style={styles.objectiveText}>{directive.successMetric}</Text>
-              </View>
-
-              <View style={styles.stepsContainer}>
-                {directive.steps.map((s) => (
-                  <TouchableOpacity
-                    key={s.order}
-                    style={styles.stepRow}
-                    onPress={() => handleToggleStep(s.order)}
-                    activeOpacity={0.7}
-                  >
-                    {s.done ? (
-                      <CheckCircle2 size={20} color={Colors.accent} />
-                    ) : (
-                      <Circle size={20} color={Colors.border} />
-                    )}
-                    <Text style={[styles.stepText, s.done && styles.stepTextDone]}>{s.action}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              <View style={styles.progressSection}>
-                <View style={styles.progressTrack}>
-                  <Animated.View
-                    style={[
-                      styles.progressFill,
-                      { width: `${Math.max(stepProgress * 100, 2)}%` },
-                    ]}
-                  />
+                <View style={styles.progressSection}>
+                  <View style={styles.progressTrack}>
+                    <View style={[styles.progressFill, { width: `${Math.max(progress * 100, directive ? 4 : 0)}%`, backgroundColor: bnColor }]} />
+                  </View>
+                  <Text style={styles.progressText}>{stepsCompleted}/{totalSteps} complete · {directive.timeboxMinutes} min timebox</Text>
                 </View>
-                <Text style={styles.progressText}>{stepsCompleted}/{totalSteps} steps</Text>
+
+                <View style={styles.successMetricRow}>
+                  <Text style={styles.successMetricText}>🎯 {directive.successMetric}</Text>
+                </View>
+
+                {directive.blockers.length > 0 ? (
+                  <View style={styles.blockersWrap}>
+                    <TouchableOpacity style={styles.blockersToggle} onPress={() => setShowBlockers((value) => !value)}>
+                      <View style={styles.blockersToggleLeft}>
+                        <AlertTriangle size={14} color={Colors.brand.fireOrange} />
+                        <Text style={styles.blockersToggleText}>ANTICIPATED BLOCKERS</Text>
+                      </View>
+                      <ChevronRight size={16} color={Colors.textMuted} style={showBlockers ? styles.chevronOpen : undefined} />
+                    </TouchableOpacity>
+                    {showBlockers ? directive.blockers.map((blocker, index) => (
+                      <View key={`${blocker}-${index}`} style={styles.blockerItem}>
+                        <Text style={styles.blockerText}>• {blocker}</Text>
+                        <Text style={styles.countermoveText}>{directive.countermoves[index] ?? 'Countermove pending.'}</Text>
+                      </View>
+                    )) : null}
+                  </View>
+                ) : null}
+
+                <TouchableOpacity style={styles.completeButton} onPress={handleCompleteDirective} testID="complete-directive-button">
+                  <LinearGradient colors={[Colors.brandGradient.start, Colors.brandGradient.middle, Colors.brandGradient.end]} style={styles.completeButtonGradient}>
+                    <Text style={styles.completeButtonText}>MARK COMPLETE</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <View style={styles.emptyDirectiveWrap}>
+                <Text style={styles.directiveTitle}>No mission loaded</Text>
+                <Text style={styles.directiveObjective}>Generate today&apos;s directive and get one precise action to execute.</Text>
+                <TouchableOpacity style={styles.completeButton} onPress={handleGenerateMission} testID="generate-mission-button">
+                  <LinearGradient colors={[Colors.brandGradient.start, Colors.brandGradient.middle, Colors.brandGradient.end]} style={styles.completeButtonGradient}>
+                    <Text style={styles.completeButtonText}>GENERATE TODAY&apos;S MISSION</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
               </View>
+            )}
+          </LinearGradient>
+        </View>
 
-              <TouchableOpacity
-                style={[styles.completeButton, !allStepsDone && styles.completeButtonMuted]}
-                onPress={handleCompleteDirective}
-                activeOpacity={0.8}
-              >
-                <LinearGradient
-                  colors={allStepsDone ? [Colors.accent, Colors.accentDark] : [Colors.tertiary, Colors.tertiary]}
-                  style={styles.completeButtonGradient}
-                >
-                  <CheckCircle2 size={18} color={allStepsDone ? Colors.primary : Colors.textMuted} />
-                  <Text style={[styles.completeButtonText, !allStepsDone && { color: Colors.textMuted }]}>
-                    Complete Directive
-                  </Text>
-                </LinearGradient>
+        <View style={styles.snapshotSection}>
+          <Text style={styles.sectionLabel}>AUTONOMOUS OS SNAPSHOT</Text>
+          <View style={styles.snapshotRow}>
+            {snapshotCards.map((card) => (
+              <TouchableOpacity key={card.key} style={styles.snapshotCard} onPress={() => router.push('/review' as never)}>
+                <Text style={styles.snapshotLabel}>{card.label}</Text>
+                <Text style={styles.snapshotValue}>{card.value}</Text>
+                <Text style={styles.snapshotDetail}>{card.detail}</Text>
               </TouchableOpacity>
-            </View>
-          ) : isComplete ? (
-            <View style={styles.completedCard}>
-              <CheckCircle2 size={32} color={Colors.accent} />
-              <Text style={styles.completedTitle}>Directive Complete</Text>
-              <Text style={styles.completedSubtitle}>{directive?.title}</Text>
-
-              <TouchableOpacity style={styles.forgeNextButton} onPress={() => router.push('/advisor' as never)}>
-                <Zap size={16} color={Colors.primary} />
-                <Text style={styles.forgeNextText}>Get Next Directive from Forge</Text>
-                <ChevronRight size={16} color={Colors.primary} />
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.generateButton} onPress={handleGenerateNew}>
-                <TrendingUp size={14} color={Colors.accent} />
-                <Text style={styles.generateText}>Auto-generate new task</Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <View style={styles.emptyDirective}>
-              <Zap size={28} color={Colors.textMuted} />
-              <Text style={styles.emptyTitle}>No directive yet</Text>
-              <Text style={styles.emptySubtitle}>
-                Generate a task based on your bottleneck, or visit Forge for personalized guidance.
-              </Text>
-
-              <TouchableOpacity style={styles.primaryActionButton} onPress={handleGenerateNew}>
-                <LinearGradient
-                  colors={[Colors.accent, Colors.accentDark]}
-                  style={styles.primaryActionGradient}
-                >
-                  <Zap size={18} color={Colors.primary} />
-                  <Text style={styles.primaryActionText}>Generate Daily Task</Text>
-                </LinearGradient>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.secondaryActionButton}
-                onPress={() => router.push('/advisor' as never)}
-              >
-                <BrandMicroIcon size={14} color={Colors.accent} />
-                <Text style={styles.secondaryActionText}>Open Forge Advisor</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-          <View style={styles.memoryWidgetWrap}>
-            <MemoryOSWidget
-              totalChunks={memoryStats.totalChunks}
-              totalEvents={memoryStats.totalEvents}
-              recentChunks={memoryStats.recentChunks}
-              topTags={memoryStats.topTags}
-            />
+            ))}
           </View>
-        </Animated.View>
-      </ScrollView>
+        </View>
 
-      {showCompletion && (
-        <Animated.View style={[styles.celebrationOverlay, { opacity: celebrateAnim }]}>
-          <Animated.View style={[styles.celebrationContent, { transform: [{ scale: celebrateScale }] }]}>
-            <Flame size={40} color="#F97316" />
-            <Text style={styles.celebrationTitle}>
-              {getStreakMessage()}
-            </Text>
-            <Text style={styles.celebrationScore}>
-              Consistency: {executionStats.consistencyScore}/100
-            </Text>
-          </Animated.View>
-        </Animated.View>
-      )}
+        <View style={styles.quickActionsSection}>
+          <Text style={styles.sectionLabel}>QUICK ACTIONS</Text>
+          <View style={styles.quickActionsRow}>
+            <QuickActionButton icon={<PencilLine size={18} color={Colors.accent} />} label="LOG METRICS" onPress={() => router.push('/review' as never)} />
+            <QuickActionButton icon={<Sparkles size={18} color={Colors.accent} />} label="ASK FORGE" onPress={() => router.push('/advisor' as never)} />
+            <QuickActionButton icon={<Package size={18} color={Colors.accent} />} label="VIEW ARSENAL" onPress={() => router.push('/assets' as never)} />
+            <QuickActionButton icon={<ChartNoAxesColumn size={18} color={Colors.accent} />} label="WEEKLY REVIEW" onPress={() => router.push('/review' as never)} />
+          </View>
+        </View>
+      </ScrollView>
 
       <Modal visible={isProjectMenuOpen} transparent animationType="fade" onRequestClose={() => setIsProjectMenuOpen(false)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setIsProjectMenuOpen(false)}>
@@ -422,9 +320,7 @@ export default function DashboardScreen() {
                   onPress={() => handleSwitchProject(project.id)}
                 >
                   <View style={styles.projectItemContent}>
-                    <Text style={[styles.projectItemName, project.id === activeProjectId && styles.projectItemNameActive]}>
-                      {project.name}
-                    </Text>
+                    <Text style={[styles.projectItemName, project.id === activeProjectId && styles.projectItemNameActive]}>{project.name}</Text>
                     <Text style={styles.projectItemType}>{project.businessType}</Text>
                   </View>
                   <TouchableOpacity
@@ -439,10 +335,7 @@ export default function DashboardScreen() {
                 </TouchableOpacity>
               ))}
             </ScrollView>
-            <TouchableOpacity
-              style={styles.newProjectMenuItem}
-              onPress={() => { setIsProjectMenuOpen(false); router.push('/onboarding' as never); }}
-            >
+            <TouchableOpacity style={styles.newProjectMenuItem} onPress={() => { setIsProjectMenuOpen(false); router.push('/onboarding' as never); }}>
               <Plus size={18} color={Colors.accent} />
               <Text style={styles.newProjectMenuText}>New Project</Text>
             </TouchableOpacity>
@@ -474,6 +367,23 @@ export default function DashboardScreen() {
   );
 }
 
+function QuickActionButton({
+  icon,
+  label,
+  onPress,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onPress: () => void;
+}) {
+  return (
+    <TouchableOpacity style={styles.quickActionButton} onPress={onPress} testID={`quick-action-${label.toLowerCase().replace(/\s+/g, '-')}`}>
+      <View style={styles.quickActionIcon}>{icon}</View>
+      <Text style={styles.quickActionLabel}>{label}</Text>
+    </TouchableOpacity>
+  );
+}
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -482,262 +392,167 @@ const styles = StyleSheet.create({
   loadingContainer: {
     flex: 1,
     backgroundColor: Colors.primary,
-    justifyContent: 'center',
     alignItems: 'center',
+    justifyContent: 'center',
   },
   loadingText: {
     color: Colors.textSecondary,
-    fontSize: 16,
+    fontSize: 15,
   },
-  projectBar: {
+  header: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 10,
     paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingTop: 12,
+    paddingBottom: 10,
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
-    gap: 10,
+    backgroundColor: Colors.primary,
+  },
+  wordmarkWrap: {
+    width: 92,
+  },
+  wordmark: {
+    color: Colors.text,
+    fontSize: 13,
+    fontWeight: '900' as const,
+    letterSpacing: 1.4,
   },
   projectSelector: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  projectName: {
-    fontSize: 16,
-    fontWeight: '600' as const,
-    color: Colors.text,
-    flex: 1,
-  },
-  newProjectButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: Colors.tertiary,
-    justifyContent: 'center',
-    alignItems: 'center',
+    minHeight: 40,
+    borderRadius: 12,
+    backgroundColor: Colors.secondary,
     borderWidth: 1,
     borderColor: Colors.border,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  projectSelectorText: {
+    flex: 1,
+    color: Colors.text,
+    fontSize: 13,
+    fontWeight: '600' as const,
+  },
+  streakPill: {
+    minWidth: 52,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: Colors.secondary,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 6,
+    paddingHorizontal: 10,
+  },
+  streakText: {
+    color: Colors.textMuted,
+    fontSize: 13,
+    fontWeight: '800' as const,
+  },
+  streakTextHot: {
+    color: Colors.brand.fireOrange,
   },
   scrollView: {
     flex: 1,
   },
   scrollContent: {
     padding: 16,
-    paddingBottom: 32,
+    paddingBottom: 120,
   },
-  bottleneckHero: {
-    backgroundColor: Colors.secondary,
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: Colors.border,
+  sectionHeaderWrap: {
+    marginBottom: 18,
   },
-  summaryCard: {
-    backgroundColor: Colors.secondary,
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: Colors.accent + '25',
-    gap: 12,
-  },
-  summaryHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  summaryLabel: {
-    fontSize: 12,
-    fontWeight: '700' as const,
+  sectionKicker: {
     color: Colors.textMuted,
-    textTransform: 'uppercase' as const,
-    letterSpacing: 0.8,
-  },
-  summaryHeadline: {
-    fontSize: 16,
-    lineHeight: 22,
-    fontWeight: '600' as const,
-    color: Colors.text,
-  },
-  summaryPills: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  summaryPill: {
-    backgroundColor: Colors.tertiary,
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  summaryPillText: {
-    fontSize: 12,
-    color: Colors.textSecondary,
-    fontWeight: '500' as const,
-  },
-  bottleneckHeroTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  heroLabel: {
     fontSize: 11,
-    fontWeight: '800' as const,
-    color: Colors.textMuted,
-    letterSpacing: 2,
-  },
-  streakPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: Colors.tertiary,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 10,
-  },
-  streakText: {
-    fontSize: 13,
     fontWeight: '700' as const,
-    color: Colors.textMuted,
-  },
-  bottleneckRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+    letterSpacing: 1.3,
     marginBottom: 8,
   },
-  bottleneckDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-  },
-  bottleneckName: {
-    fontSize: 24,
-    fontWeight: '800' as const,
-  },
-  confidencePill: {
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    marginLeft: 4,
-  },
-  confidenceText: {
-    fontSize: 11,
-    fontWeight: '600' as const,
-  },
-  bottleneckReasoning: {
-    fontSize: 13,
-    color: Colors.textMuted,
-    lineHeight: 18,
-    marginBottom: 16,
-  },
-  statsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-around',
-    paddingTop: 14,
-    borderTopWidth: 1,
-    borderTopColor: Colors.border,
-  },
-  statItem: {
-    alignItems: 'center',
-  },
-  statValue: {
-    fontSize: 18,
-    fontWeight: '700' as const,
+  headline: {
     color: Colors.text,
+    fontSize: 28,
+    fontWeight: '800' as const,
+    marginBottom: 8,
   },
-  statLabel: {
-    fontSize: 10,
-    color: Colors.textMuted,
-    textTransform: 'uppercase' as const,
-    letterSpacing: 0.5,
-    marginTop: 2,
-  },
-  statDivider: {
-    width: 1,
-    height: 28,
-    backgroundColor: Colors.border,
+  subheadline: {
+    color: Colors.textSecondary,
+    fontSize: 14,
+    lineHeight: 20,
   },
   directiveCard: {
-    backgroundColor: Colors.secondary,
-    borderRadius: 16,
-    padding: 20,
+    borderLeftWidth: 3,
+    borderRadius: 18,
+    overflow: 'hidden',
+    marginBottom: 18,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  directiveGradient: {
     borderWidth: 1,
     borderColor: Colors.border,
+    padding: 16,
   },
-  directiveTop: {
+  directiveHeader: {
     flexDirection: 'row',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 14,
+    gap: 12,
+    marginBottom: 16,
   },
-  directiveBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: Colors.accent,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  directiveBadgeText: {
-    fontSize: 11,
-    fontWeight: '700' as const,
-    color: Colors.primary,
-    textTransform: 'uppercase' as const,
-    letterSpacing: 0.3,
-  },
-  timeboxPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  timeboxText: {
-    fontSize: 12,
-    color: Colors.textMuted,
+  directiveHeaderTextWrap: {
+    flex: 1,
   },
   directiveTitle: {
-    fontSize: 20,
-    fontWeight: '700' as const,
     color: Colors.text,
-    marginBottom: 10,
-    lineHeight: 26,
+    fontSize: 21,
+    fontWeight: '800' as const,
+    marginBottom: 8,
   },
-  objectiveRow: {
+  directiveObjective: {
+    color: Colors.textSecondary,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  timePill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginBottom: 18,
-    backgroundColor: Colors.accent + '10',
+    borderRadius: 999,
     paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
+    paddingVertical: 7,
+    backgroundColor: Colors.primary,
+    borderWidth: 1,
+    borderColor: Colors.accent + '40',
   },
-  objectiveText: {
-    fontSize: 13,
+  timePillText: {
     color: Colors.accent,
-    fontWeight: '500' as const,
+    fontSize: 12,
+    fontWeight: '700' as const,
   },
-  stepsContainer: {
-    gap: 10,
-    marginBottom: 18,
+  stepsWrap: {
+    gap: 12,
+    marginBottom: 16,
   },
   stepRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    paddingVertical: 4,
   },
   stepText: {
     flex: 1,
-    fontSize: 15,
     color: Colors.text,
+    fontSize: 14,
     lineHeight: 20,
   },
   stepTextDone: {
@@ -745,195 +560,181 @@ const styles = StyleSheet.create({
     textDecorationLine: 'line-through',
   },
   progressSection: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginBottom: 18,
+    marginBottom: 14,
   },
   progressTrack: {
-    flex: 1,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: Colors.tertiary,
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: Colors.primary,
     overflow: 'hidden',
+    marginBottom: 8,
   },
   progressFill: {
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: Colors.accent,
+    height: '100%',
+    borderRadius: 999,
   },
   progressText: {
-    fontSize: 12,
     color: Colors.textMuted,
-    fontWeight: '500' as const,
+    fontSize: 12,
+  },
+  successMetricRow: {
+    marginBottom: 14,
+  },
+  successMetricText: {
+    color: Colors.text,
+    fontSize: 14,
+    fontWeight: '600' as const,
+  },
+  blockersWrap: {
+    marginBottom: 16,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+    paddingTop: 14,
+  },
+  blockersToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  blockersToggleLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  blockersToggleText: {
+    color: Colors.textMuted,
+    fontSize: 11,
+    fontWeight: '800' as const,
+    letterSpacing: 1.1,
+  },
+  chevronOpen: {
+    transform: [{ rotate: '90deg' }],
+  },
+  blockerItem: {
+    marginTop: 12,
+    paddingLeft: 4,
+  },
+  blockerText: {
+    color: Colors.text,
+    fontSize: 13,
+    lineHeight: 18,
+    marginBottom: 6,
+  },
+  countermoveText: {
+    color: Colors.accent,
+    fontSize: 13,
+    lineHeight: 18,
   },
   completeButton: {
     borderRadius: 12,
     overflow: 'hidden',
   },
-  completeButtonMuted: {
-    opacity: 0.6,
-  },
   completeButtonGradient: {
-    flexDirection: 'row',
+    minHeight: 48,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 14,
+    borderRadius: 12,
+    paddingHorizontal: 16,
   },
   completeButtonText: {
-    fontSize: 15,
-    fontWeight: '600' as const,
-    color: Colors.primary,
-  },
-  completedCard: {
-    backgroundColor: Colors.secondary,
-    borderRadius: 16,
-    padding: 28,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: Colors.accent + '30',
-  },
-  completedTitle: {
-    fontSize: 18,
-    fontWeight: '700' as const,
-    color: Colors.accent,
-    marginTop: 12,
-  },
-  completedSubtitle: {
+    color: Colors.text,
     fontSize: 14,
+    fontWeight: '800' as const,
+    letterSpacing: 0.6,
+  },
+  emptyDirectiveWrap: {
+    gap: 12,
+  },
+  snapshotSection: {
+    marginBottom: 18,
+  },
+  sectionLabel: {
     color: Colors.textMuted,
-    marginTop: 4,
-    marginBottom: 24,
-    textAlign: 'center',
+    fontSize: 11,
+    fontWeight: '700' as const,
+    letterSpacing: 1.3,
+    marginBottom: 10,
   },
-  forgeNextButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: Colors.accent,
-    paddingVertical: 14,
-    paddingHorizontal: 24,
-    borderRadius: 12,
-    marginBottom: 12,
+  snapshotRow: {
+    gap: 10,
   },
-  forgeNextText: {
-    fontSize: 15,
-    fontWeight: '600' as const,
-    color: Colors.primary,
-  },
-  generateButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingVertical: 10,
-  },
-  generateText: {
-    fontSize: 14,
-    color: Colors.accent,
-  },
-  emptyDirective: {
+  snapshotCard: {
     backgroundColor: Colors.secondary,
-    borderRadius: 16,
-    padding: 32,
-    alignItems: 'center',
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: Colors.border,
+    padding: 16,
   },
-  emptyTitle: {
-    fontSize: 17,
-    fontWeight: '600' as const,
-    color: Colors.text,
-    marginTop: 14,
-  },
-  emptySubtitle: {
-    fontSize: 14,
+  snapshotLabel: {
     color: Colors.textMuted,
-    textAlign: 'center',
-    marginTop: 6,
-    marginBottom: 24,
-    lineHeight: 20,
+    fontSize: 12,
+    marginBottom: 8,
   },
-  primaryActionButton: {
-    width: '100%',
-    borderRadius: 12,
-    overflow: 'hidden',
-    marginBottom: 12,
-  },
-  primaryActionGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 14,
-  },
-  primaryActionText: {
-    fontSize: 15,
-    fontWeight: '600' as const,
-    color: Colors.primary,
-  },
-  secondaryActionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingVertical: 10,
-  },
-  secondaryActionText: {
-    fontSize: 14,
-    color: Colors.accent,
-  },
-  celebrationOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(10, 10, 15, 0.92)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 100,
-  },
-  celebrationContent: {
-    alignItems: 'center',
-    padding: 40,
-  },
-  celebrationTitle: {
+  snapshotValue: {
+    color: Colors.text,
     fontSize: 22,
     fontWeight: '800' as const,
-    color: '#F97316',
-    textAlign: 'center',
-    marginTop: 16,
-    lineHeight: 28,
+    marginBottom: 6,
   },
-  celebrationScore: {
-    fontSize: 14,
+  snapshotDetail: {
     color: Colors.textSecondary,
-    marginTop: 8,
+    fontSize: 13,
+  },
+  quickActionsSection: {
+    marginBottom: 12,
+  },
+  quickActionsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  quickActionButton: {
+    width: '47.5%',
+    backgroundColor: Colors.secondary,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: 14,
+  },
+  quickActionIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: Colors.tertiary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  quickActionLabel: {
+    color: Colors.text,
+    fontSize: 12,
+    fontWeight: '700' as const,
+    lineHeight: 18,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: Colors.overlay,
+    backgroundColor: 'rgba(0,0,0,0.45)',
     justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
+    paddingHorizontal: 20,
   },
   projectMenu: {
     backgroundColor: Colors.secondary,
-    borderRadius: 16,
-    width: '100%',
-    maxWidth: 360,
-    maxHeight: '70%',
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: Colors.border,
+    maxHeight: '70%',
+    padding: 16,
   },
   projectMenuHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    justifyContent: 'space-between',
+    marginBottom: 14,
   },
   projectMenuTitle: {
-    fontSize: 17,
-    fontWeight: '600' as const,
     color: Colors.text,
+    fontSize: 18,
+    fontWeight: '700' as const,
   },
   projectList: {
     maxHeight: 300,
@@ -941,67 +742,74 @@ const styles = StyleSheet.create({
   projectItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    justifyContent: 'space-between',
+    backgroundColor: Colors.tertiary,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
   projectItemActive: {
-    backgroundColor: Colors.tertiary,
+    borderColor: Colors.accent,
   },
   projectItemContent: {
     flex: 1,
   },
   projectItemName: {
-    fontSize: 15,
-    fontWeight: '500' as const,
     color: Colors.text,
-    marginBottom: 2,
+    fontSize: 14,
+    fontWeight: '700' as const,
+    marginBottom: 4,
   },
   projectItemNameActive: {
     color: Colors.accent,
   },
   projectItemType: {
-    fontSize: 12,
     color: Colors.textMuted,
+    fontSize: 12,
   },
   projectActionsButton: {
-    padding: 8,
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   newProjectMenuItem: {
+    marginTop: 8,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    padding: 16,
-    borderTopWidth: 1,
-    borderTopColor: Colors.border,
+    minHeight: 48,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.primary,
   },
   newProjectMenuText: {
-    fontSize: 15,
-    fontWeight: '600' as const,
     color: Colors.accent,
+    fontSize: 14,
+    fontWeight: '700' as const,
   },
   actionsMenu: {
     backgroundColor: Colors.secondary,
-    borderRadius: 12,
-    width: '100%',
-    maxWidth: 280,
-    padding: 8,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: Colors.border,
+    padding: 12,
   },
   actionItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    padding: 14,
-    borderRadius: 8,
+    gap: 10,
+    minHeight: 48,
+    paddingHorizontal: 10,
   },
   actionItemText: {
-    fontSize: 15,
     color: Colors.text,
-  },
-  memoryWidgetWrap: {
-    marginTop: 16,
+    fontSize: 14,
+    fontWeight: '600' as const,
   },
 });

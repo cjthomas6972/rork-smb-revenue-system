@@ -1,261 +1,275 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TextInput,
-  TouchableOpacity,
-  ScrollView,
+  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
-  ActivityIndicator,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { Send, Sparkles, Copy, Check, Zap, Target, ArrowRight, Brain } from 'lucide-react-native';
+import { useRouter } from 'expo-router';
+import { Brain, Copy, Check, Send, Sparkles, Target, Zap, Archive } from 'lucide-react-native';
+import * as Haptics from 'expo-haptics';
 import { useRorkAgent } from '@rork-ai/toolkit-sdk';
+import Colors from '@/constants/colors';
 import { useBusiness } from '@/store/BusinessContext';
 import { useMemory } from '@/store/MemoryContext';
+import { DailyDirective, RevenueAsset } from '@/types/business';
 import { getSystemPrompt } from '@/constants/systemPrompt';
 import { extractAdvisorMemories } from '@/utils/memoryEngine';
-import Colors from '@/constants/colors';
-import * as Haptics from 'expo-haptics';
-import { BrandMicroIcon } from '@/components/brand';
-import { DailyDirective } from '@/types/business';
-import { useAutonomousOS } from '@/hooks/useAutonomousOS';
+import { buildRevenueAsset, parseAssetAutoSave } from '@/utils/assetAutoSave';
+
+type AgentMessage = {
+  id: string;
+  role: 'user' | 'assistant';
+  parts: Array<{ type: string; text?: string }>;
+};
+
+const QUICK_CHIPS: Record<string, string[]> = {
+  traffic: [
+    'Write me a hook for Instagram this week',
+    'Give me 3 lead gen plays for this week',
+    'Critique my current offer',
+  ],
+  conversion: [
+    'Script for my sales call',
+    'Fix my landing page copy',
+    'Handle the price objection',
+  ],
+  'follow-up': [
+    'Write my missed call SMS sequence',
+    'Build a 7-day follow-up cadence',
+    'DM outreach for cold leads',
+  ],
+  pricing: [
+    'Should I raise my prices?',
+    'Build me a premium package',
+    'Position my offer vs competitors',
+  ],
+  operations: [
+    'Simplify my delivery process',
+    'What should I automate first?',
+    'Create a weekly operating checklist',
+  ],
+};
+
+function getMessageText(message: AgentMessage): string {
+  return message.parts
+    .filter((part) => part.type === 'text' && typeof part.text === 'string')
+    .map((part) => part.text ?? '')
+    .join('\n')
+    .trim();
+}
+
+function extractDirective(text: string, currentFocus: string): DailyDirective | null {
+  try {
+    const start = text.indexOf('{');
+    const end = text.lastIndexOf('}');
+    if (start === -1 || end === -1 || end <= start) {
+      return null;
+    }
+
+    const parsed = JSON.parse(text.slice(start, end + 1)) as Omit<DailyDirective, 'id' | 'createdAt' | 'status'>;
+    if (!parsed.title || !Array.isArray(parsed.steps)) {
+      return null;
+    }
+
+    return {
+      id: `${Date.now()}`,
+      createdAt: new Date().toISOString(),
+      status: 'pending',
+      title: parsed.title,
+      description: parsed.description,
+      reason: parsed.reason,
+      estimatedTime: parsed.estimatedTime,
+      objective: parsed.objective,
+      steps: parsed.steps,
+      timeboxMinutes: parsed.timeboxMinutes,
+      successMetric: parsed.successMetric,
+      blockers: parsed.blockers ?? [],
+      countermoves: parsed.countermoves ?? [],
+      modeTag: parsed.modeTag ?? currentFocus,
+      linkedAssets: parsed.linkedAssets ?? [],
+    };
+  } catch {
+    return null;
+  }
+}
 
 export default function AdvisorScreen() {
-  const [input, setInput] = useState('');
-  const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [savedDirective, setSavedDirective] = useState(false);
-  const [lastUserMessage, setLastUserMessage] = useState('');
+  const router = useRouter();
   const scrollViewRef = useRef<ScrollView>(null);
+  const processedMessageIds = useRef<Set<string>>(new Set());
+  const [input, setInput] = useState<string>('');
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [isSending, setIsSending] = useState<boolean>(false);
+
   const {
     activeProject,
     metrics,
+    currentBottleneck,
     updateAdvisorDirective,
     updateDailyDirective,
-    currentBottleneck,
+    addAsset,
+    assets,
   } = useBusiness();
-
   const {
     getFormattedContext,
     writeMemoryAndEvents,
+    getProjectChunks,
   } = useMemory();
 
-  const memoryContext = activeProject
-    ? getFormattedContext(activeProject.id, lastUserMessage || activeProject.businessType)
-    : '';
+  const currentFocus = activeProject?.focusMode === 'manual'
+    ? activeProject.manualFocusArea ?? 'traffic'
+    : activeProject?.bottleneck ?? 'traffic';
 
+  const bottleneckLabel = currentBottleneck?.category
+    ? `${currentBottleneck.category.charAt(0).toUpperCase()}${currentBottleneck.category.slice(1)}`
+    : currentFocus;
+
+  const memoryCount = useMemo(() => {
+    if (!activeProject) return 0;
+    return getProjectChunks(activeProject.id).length;
+  }, [activeProject, getProjectChunks]);
+
+  const quickChips = useMemo(() => QUICK_CHIPS[currentBottleneck?.category ?? 'traffic'] ?? QUICK_CHIPS.traffic, [currentBottleneck?.category]);
+  const memoryContext = activeProject ? getFormattedContext(activeProject.id, input || activeProject.businessType) : '';
   const systemPrompt = getSystemPrompt(activeProject, metrics, memoryContext);
 
-  const { messages, sendMessage, setMessages } = useRorkAgent({
-    tools: {},
-  });
-
-  const currentFocus = activeProject?.focusMode === 'manual'
-    ? activeProject.manualFocusArea
-    : activeProject?.bottleneck;
-
-  const bnLabel = currentBottleneck?.category
-    ? currentBottleneck.category.charAt(0).toUpperCase() + currentBottleneck.category.slice(1)
-    : currentFocus || 'General';
-  const autonomousSnapshot = useAutonomousOS(activeProject, metrics);
-
-  const initializeWelcome = useCallback(() => {
-    if (messages.length === 0 && activeProject) {
-      setMessages([
-        {
-          id: 'welcome',
-          role: 'assistant',
-          parts: [
-            {
-              type: 'text',
-              text: `SKYFORGE ready. Analyzing "${activeProject.name}".\n\nCurrent bottleneck: ${bnLabel}${currentBottleneck ? ` (${currentBottleneck.confidence}% confidence)` : ''}.\n\nMemory OS active — I remember your workspace context.\n\nTell me what is happening — I will give you the exact next move.`,
-            },
-          ],
-        },
-      ]);
-    }
-  }, [messages.length, activeProject, bnLabel, currentBottleneck, setMessages]);
-
-  useEffect(() => {
-    initializeWelcome();
-  }, [initializeWelcome]);
-
-  useEffect(() => {
-    if (activeProject) {
-      setMessages([
-        {
-          id: 'welcome',
-          role: 'assistant',
-          parts: [
-            {
-              type: 'text',
-              text: `SKYFORGE ready. Analyzing "${activeProject.name}".\n\nCurrent bottleneck: ${bnLabel}${currentBottleneck ? ` (${currentBottleneck.confidence}% confidence)` : ''}.\n\nMemory OS active — I remember your workspace context.\n\nTell me what is happening — I will give you the exact next move.`,
-            },
-          ],
-        },
-      ]);
-      setSavedDirective(false);
-    }
-  }, [activeProject, bnLabel, currentBottleneck, setMessages]);
-
-  const extractDirectiveFromResponse = (text: string) => {
-    const lines = text.split('\n');
-    let title = '';
-    let description = '';
-    let reason = '';
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim();
-      if (line.toLowerCase().includes('task:') || line.toLowerCase().includes('action:') || line.toLowerCase().includes('do this:')) {
-        title = line.replace(/^(task:|action:|do this:)/i, '').trim();
-      } else if (line.toLowerCase().includes('why:') || line.toLowerCase().includes('reason:')) {
-        reason = line.replace(/^(why:|reason:)/i, '').trim();
-      }
-    }
-
-    if (!title && lines.length > 0) {
-      const firstSentence = text.split(/[.!?]/)[0];
-      if (firstSentence.length < 100) {
-        title = firstSentence.trim();
-      }
-    }
-
-    if (title) {
-      description = text.substring(0, 200).trim();
-      if (text.length > 200) description += '...';
-
-      return {
-        id: Date.now().toString(),
-        title: title.substring(0, 100),
-        description,
-        reason: reason || 'Based on Skyforge analysis of your current situation.',
-        estimatedTime: '20-30 minutes',
-        createdAt: new Date().toISOString(),
-      };
-    }
-
-    return null;
+  const { messages, sendMessage, setMessages } = useRorkAgent({ tools: {} }) as {
+    messages: AgentMessage[];
+    sendMessage: (payload: { text: string }) => void;
+    setMessages: (next: AgentMessage[]) => void;
   };
 
-  const processMemoryFromResponse = useCallback((responseText: string, userMsg: string) => {
+  useEffect(() => {
     if (!activeProject) return;
+    setMessages([
+      {
+        id: 'welcome',
+        role: 'assistant',
+        parts: [
+          {
+            type: 'text',
+            text: `SKYFORGE OS active for ${activeProject.name}. Current bottleneck: ${bottleneckLabel}${currentBottleneck ? ` (${currentBottleneck.confidence}% confidence)` : ''}. Tell me what is happening and I will give you the next move.`,
+          },
+        ],
+      },
+    ]);
+    processedMessageIds.current = new Set(['welcome']);
+  }, [activeProject, bottleneckLabel, currentBottleneck, setMessages]);
 
-    const memoryWrites = extractAdvisorMemories(responseText, userMsg, activeProject.name);
-    if (memoryWrites.length > 0) {
-      writeMemoryAndEvents(
-        activeProject.id,
-        memoryWrites,
-        [{
-          eventType: 'decision_made',
-          metadata: { source: 'advisor', messageLength: responseText.length },
-        }]
-      );
-      console.log(`[Advisor] Stored ${memoryWrites.length} memory chunks from conversation`);
+  useEffect(() => {
+    if (!activeProject) return;
+    const assistantMessages = messages.filter((message) => message.role === 'assistant');
+    const lastAssistant = assistantMessages[assistantMessages.length - 1];
+    if (!lastAssistant || processedMessageIds.current.has(lastAssistant.id)) {
+      return;
     }
-  }, [activeProject, writeMemoryAndEvents]);
 
-  const handleSend = async () => {
-    if (!input.trim() || !activeProject) return;
+    const rawText = getMessageText(lastAssistant);
+    if (!rawText) return;
+
+    processedMessageIds.current.add(lastAssistant.id);
+    setIsSending(false);
+
+    const autoAsset = parseAssetAutoSave(rawText);
+    const responseText = autoAsset.cleanText || rawText;
+
+    if (autoAsset.shouldSave && autoAsset.assetType && autoAsset.title) {
+      const duplicate = assets.some((asset) => asset.title === autoAsset.title && asset.type === autoAsset.assetType);
+      if (!duplicate) {
+        addAsset(buildRevenueAsset({
+          projectId: activeProject.id,
+          type: autoAsset.assetType,
+          title: autoAsset.title,
+          content: responseText,
+        }));
+      }
+    }
+
+    const directive = extractDirective(responseText, currentFocus);
+    if (directive) {
+      updateAdvisorDirective({
+        projectId: activeProject.id,
+        directive: {
+          id: directive.id,
+          title: directive.title,
+          description: directive.description,
+          reason: directive.reason,
+          estimatedTime: directive.estimatedTime,
+          createdAt: directive.createdAt,
+        },
+      });
+    }
+
+    const memoryWrites = extractAdvisorMemories(responseText, input, activeProject.name);
+    if (memoryWrites.length > 0) {
+      writeMemoryAndEvents(activeProject.id, memoryWrites, [
+        {
+          eventType: 'decision_made',
+          metadata: { source: 'advisor', messageId: lastAssistant.id },
+        },
+      ]);
+    }
+  }, [activeProject, addAsset, assets, currentFocus, input, messages, updateAdvisorDirective, writeMemoryAndEvents]);
+
+  const handleSend = useCallback((messageText?: string) => {
+    if (!activeProject) return;
+    const nextInput = (messageText ?? input).trim();
+    if (!nextInput) return;
 
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    const message = input.trim();
     setInput('');
-    setSavedDirective(false);
-    setLastUserMessage(message);
+    setIsSending(true);
 
     sendMessage({
-      text: `[System Context: ${systemPrompt}]\n\nUser: ${message}`,
+      text: `[System Context: ${systemPrompt}]\n\nUser: ${nextInput}`,
     });
 
     setTimeout(() => {
       scrollViewRef.current?.scrollToEnd({ animated: true });
+    }, 200);
+  }, [activeProject, input, sendMessage, systemPrompt]);
 
-      const lastAssistantMessage = messages.filter(m => m.role === 'assistant').pop();
-      if (lastAssistantMessage) {
-        const textPart = lastAssistantMessage.parts.find(p => p.type === 'text');
-        if (textPart && 'text' in textPart && textPart.text) {
-          const directive = extractDirectiveFromResponse(textPart.text);
-          if (directive) {
-            updateAdvisorDirective({ projectId: activeProject.id, directive });
-            console.log('[Advisor] Directive extracted:', directive.title);
-          }
-          processMemoryFromResponse(textPart.text, message);
-        }
-      }
-    }, 500);
-  };
-
-  const handleSetAsDirective = (text: string) => {
-    if (!activeProject) return;
-    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-
-    const extracted = extractDirectiveFromResponse(text);
-    const title = extracted?.title || text.split(/[.!?\n]/)[0].substring(0, 80);
-    const description = extracted?.description || text.substring(0, 200);
-
-    const directive: DailyDirective = {
-      id: Date.now().toString(),
-      title,
-      description,
-      reason: extracted?.reason || 'From Skyforge Advisor analysis.',
-      estimatedTime: '20-30 minutes',
-      status: 'pending',
-      createdAt: new Date().toISOString(),
-      objective: title,
-      steps: [
-        { order: 1, action: description.substring(0, 120), done: false },
-      ],
-      timeboxMinutes: 30,
-      successMetric: 'Task completed as described',
-      blockers: [],
-      countermoves: [],
-      modeTag: currentFocus || 'general',
-      linkedAssets: [],
-    };
-
-    updateDailyDirective({ projectId: activeProject.id, directive });
-    if (extracted) {
-      updateAdvisorDirective({ projectId: activeProject.id, directive: { ...extracted } });
-    }
-    setSavedDirective(true);
-
-    writeMemoryAndEvents(
-      activeProject.id,
-      [{
-        content: `User set advisor recommendation as daily directive: "${title}"`,
-        tags: ['decision'],
-        sourceType: 'decision',
-        reason: 'User adopted advisor recommendation as daily task',
-      }],
-      [{
-        eventType: 'decision_made',
-        metadata: { action: 'set_as_directive', title },
-      }]
-    );
-  };
-
-  const handleCopy = async (text: string, id: string) => {
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    if (Platform.OS === 'web') {
+  const handleCopy = useCallback(async (text: string, id: string) => {
+    if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.clipboard) {
       await navigator.clipboard.writeText(text);
     }
     setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2000);
-  };
+    setTimeout(() => setCopiedId(null), 1800);
+  }, []);
 
-  const isLoading = messages.some(
-    (m) => m.role === 'assistant' && m.parts.some((p) => p.type === 'text' && 'text' in p && (p as { text: string }).text === '')
-  );
+  const handleCreateDirective = useCallback((text: string) => {
+    if (!activeProject) return;
+    const directive = extractDirective(text, currentFocus);
+    if (!directive) return;
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    updateDailyDirective({ projectId: activeProject.id, directive });
+  }, [activeProject, currentFocus, updateDailyDirective]);
+
+  const handleSaveToArsenal = useCallback((text: string) => {
+    if (!activeProject) return;
+    const autoAsset = parseAssetAutoSave(text);
+    if (!autoAsset.shouldSave || !autoAsset.assetType || !autoAsset.title) return;
+
+    addAsset(buildRevenueAsset({
+      projectId: activeProject.id,
+      type: autoAsset.assetType,
+      title: autoAsset.title,
+      content: autoAsset.cleanText,
+    }));
+  }, [activeProject, addAsset]);
 
   if (!activeProject) {
     return (
       <View style={styles.emptyContainer}>
-        <Sparkles size={48} color={Colors.textMuted} />
-        <Text style={styles.emptyTitle}>No Project Selected</Text>
-        <Text style={styles.emptyText}>
-          Select or create a project to start getting guidance
-        </Text>
+        <Sparkles size={42} color={Colors.textMuted} />
+        <Text style={styles.emptyTitle}>No active workspace</Text>
+        <Text style={styles.emptyText}>Create or select a project to activate FORGE.</Text>
       </View>
     );
   }
@@ -266,132 +280,90 @@ export default function AdvisorScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       keyboardVerticalOffset={90}
     >
-      <View style={styles.topBar}>
-        {currentBottleneck && (
-          <View style={styles.bottleneckBar}>
-            <Target size={12} color={Colors.accent} />
-            <Text style={styles.bottleneckBarText}>
-              Bottleneck: {bnLabel} ({currentBottleneck.confidence}%)
-            </Text>
-          </View>
-        )}
-        <View style={styles.memoryIndicator}>
-          <Brain size={11} color={Colors.brand.electricBlue} />
-          <Text style={styles.memoryIndicatorText}>Memory OS</Text>
+      <View style={styles.contextBar}>
+        <View style={styles.contextPill}>
+          <Target size={12} color={Colors.accent} />
+          <Text style={styles.contextPillText}>{bottleneckLabel} {currentBottleneck ? `${currentBottleneck.confidence}%` : ''}</Text>
         </View>
+        <TouchableOpacity style={styles.memoryPill} onPress={() => router.push('/memory-log' as never)}>
+          <Brain size={12} color={Colors.brand.electricBlue} />
+          <Text style={styles.memoryPillText}>🧠 {memoryCount} memories active</Text>
+        </TouchableOpacity>
       </View>
+
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsScroll} contentContainerStyle={styles.chipsContent}>
+        {quickChips.map((chip) => (
+          <TouchableOpacity key={chip} style={styles.chip} onPress={() => handleSend(chip)}>
+            <Text style={styles.chipText}>{chip}</Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
 
       <ScrollView
         ref={scrollViewRef}
         style={styles.messagesContainer}
         contentContainerStyle={styles.messagesContent}
         showsVerticalScrollIndicator={false}
-        onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
       >
-        {autonomousSnapshot && autonomousSnapshot.recommendations.length > 0 ? (
-          <View style={styles.recommendationsCard}>
-            <View style={styles.recommendationsHeader}>
-              <Sparkles size={14} color={Colors.accent} />
-              <Text style={styles.recommendationsTitle}>Growth Analyst</Text>
+        {messages.map((message) => {
+          const messageText = getMessageText(message);
+          const hasDirective = Boolean(extractDirective(messageText, currentFocus));
+          const hasAssetTag = parseAssetAutoSave(messageText).shouldSave;
+
+          return (
+            <View key={message.id} style={[styles.messageBubble, message.role === 'user' ? styles.userBubble : styles.assistantBubble]}>
+              {message.role === 'assistant' ? (
+                <View style={styles.assistantHeader}>
+                  <Text style={styles.assistantLabel}>SKYFORGE OS</Text>
+                </View>
+              ) : null}
+              <Text style={[styles.messageText, message.role === 'user' ? styles.userText : styles.assistantText]}>{parseAssetAutoSave(messageText).cleanText || messageText}</Text>
+              {message.role === 'assistant' && messageText ? (
+                <View style={styles.messageActions}>
+                  <TouchableOpacity style={styles.messageActionButton} onPress={() => handleCopy(messageText, message.id)}>
+                    {copiedId === message.id ? <Check size={14} color={Colors.accent} /> : <Copy size={14} color={Colors.textSecondary} />}
+                    <Text style={styles.messageActionText}>{copiedId === message.id ? 'COPIED' : 'COPY'}</Text>
+                  </TouchableOpacity>
+                  {hasAssetTag ? (
+                    <TouchableOpacity style={styles.messageActionButton} onPress={() => handleSaveToArsenal(messageText)}>
+                      <Archive size={14} color={Colors.accent} />
+                      <Text style={styles.messageActionText}>SAVE TO ARSENAL</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                  {hasDirective ? (
+                    <TouchableOpacity style={styles.messageActionButton} onPress={() => handleCreateDirective(messageText)}>
+                      <Zap size={14} color={Colors.accent} />
+                      <Text style={styles.messageActionText}>CREATE DIRECTIVE</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+              ) : null}
             </View>
-            {autonomousSnapshot.recommendations.map((recommendation, index) => (
-              <View key={`${recommendation}-${index}`} style={styles.recommendationRow}>
-                <BrandMicroIcon size={12} color={Colors.accent} />
-                <Text style={styles.recommendationText}>{recommendation}</Text>
-              </View>
-            ))}
+          );
+        })}
+        {isSending ? (
+          <View style={[styles.messageBubble, styles.assistantBubble]}>
+            <View style={styles.typingWrap}>
+              <ActivityIndicator color={Colors.accent} size="small" />
+              <Text style={styles.typingText}>Thinking...</Text>
+            </View>
           </View>
         ) : null}
-        {messages.map((message) => (
-          <View
-            key={message.id}
-            style={[
-              styles.messageBubble,
-              message.role === 'user' ? styles.userBubble : styles.assistantBubble,
-            ]}
-          >
-            {message.role === 'assistant' && (
-              <View style={styles.assistantHeader}>
-                <BrandMicroIcon size={12} color={Colors.accent} />
-                <Text style={styles.assistantLabel}>SKYFORGE</Text>
-              </View>
-            )}
-            {message.parts.map((part, index) => {
-              if (part.type === 'text' && 'text' in part) {
-                const textContent = (part as { text: string }).text ?? '';
-                return (
-                  <View key={`${message.id}-${index}`}>
-                    <Text
-                      style={[
-                        styles.messageText,
-                        message.role === 'user' ? styles.userText : styles.assistantText,
-                      ]}
-                    >
-                      {textContent}
-                    </Text>
-                    {message.role === 'assistant' && textContent.length > 50 ? (
-                      <View style={styles.messageActions}>
-                        <TouchableOpacity
-                          style={styles.copyButton}
-                          onPress={() => handleCopy(textContent, `${message.id}-${index}`)}
-                        >
-                          {copiedId === `${message.id}-${index}` ? (
-                            <Check size={14} color={Colors.accent} />
-                          ) : (
-                            <Copy size={14} color={Colors.textMuted} />
-                          )}
-                          <Text style={styles.copyText}>
-                            {copiedId === `${message.id}-${index}` ? 'Copied' : 'Copy'}
-                          </Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={styles.setDirectiveButton}
-                          onPress={() => handleSetAsDirective(textContent)}
-                        >
-                          <Zap size={14} color={savedDirective ? Colors.textMuted : Colors.accent} />
-                          <Text style={[styles.setDirectiveText, savedDirective && { color: Colors.textMuted }]}>
-                            {savedDirective ? 'Set as Task' : 'Set as Daily Task'}
-                          </Text>
-                          {!savedDirective && <ArrowRight size={12} color={Colors.accent} />}
-                        </TouchableOpacity>
-                      </View>
-                    ) : null}
-                  </View>
-                );
-              }
-              return null;
-            })}
-          </View>
-        ))}
-        {isLoading && (
-          <View style={[styles.messageBubble, styles.assistantBubble]}>
-            <View style={styles.typingIndicator}>
-              <ActivityIndicator size="small" color={Colors.accent} />
-              <Text style={styles.typingText}>Analyzing...</Text>
-            </View>
-          </View>
-        )}
       </ScrollView>
 
-      <View style={styles.inputContainer}>
-        <View style={styles.inputWrapper}>
-          <TextInput
-            style={styles.input}
-            value={input}
-            onChangeText={setInput}
-            placeholder="Describe your situation..."
-            placeholderTextColor={Colors.textMuted}
-            multiline
-            maxLength={2000}
-          />
-          <TouchableOpacity
-            style={[styles.sendButton, !input.trim() && styles.sendButtonDisabled]}
-            onPress={handleSend}
-            disabled={!input.trim()}
-          >
-            <Send size={20} color={input.trim() ? Colors.primary : Colors.textMuted} />
-          </TouchableOpacity>
-        </View>
+      <View style={styles.inputWrap}>
+        <TextInput
+          style={styles.input}
+          value={input}
+          onChangeText={setInput}
+          placeholder="Ask SKYFORGE OS anything..."
+          placeholderTextColor={Colors.textMuted}
+          multiline
+          testID="forge-input"
+        />
+        <TouchableOpacity style={[styles.sendButton, !input.trim() && styles.sendButtonDisabled]} onPress={() => handleSend()} disabled={!input.trim()} testID="forge-send-button">
+          <Send size={18} color={input.trim() ? Colors.primary : Colors.textMuted} />
+        </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
   );
@@ -405,208 +377,187 @@ const styles = StyleSheet.create({
   emptyContainer: {
     flex: 1,
     backgroundColor: Colors.primary,
-    justifyContent: 'center',
     alignItems: 'center',
-    padding: 40,
+    justifyContent: 'center',
+    padding: 32,
   },
   emptyTitle: {
-    fontSize: 18,
-    fontWeight: '600' as const,
     color: Colors.text,
-    marginTop: 16,
+    fontSize: 18,
+    fontWeight: '700' as const,
+    marginTop: 14,
     marginBottom: 8,
   },
   emptyText: {
-    fontSize: 14,
     color: Colors.textSecondary,
+    fontSize: 14,
     textAlign: 'center',
   },
-  topBar: {
+  contextBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: 8,
     paddingHorizontal: 16,
-    paddingVertical: 8,
-    backgroundColor: Colors.secondary,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    paddingTop: 12,
+    paddingBottom: 8,
   },
-  bottleneckBar: {
+  contextPill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: Colors.secondary,
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
-  bottleneckBarText: {
+  contextPillText: {
+    color: Colors.text,
     fontSize: 12,
-    color: Colors.textSecondary,
-    fontWeight: '500' as const,
+    fontWeight: '700' as const,
   },
-  memoryIndicator: {
+  memoryPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    backgroundColor: Colors.brand.electricBlue + '15',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: Colors.brand.electricBlue + '14',
+    borderWidth: 1,
+    borderColor: Colors.brand.electricBlue + '22',
   },
-  memoryIndicatorText: {
-    fontSize: 10,
-    fontWeight: '600' as const,
+  memoryPillText: {
     color: Colors.brand.electricBlue,
-    letterSpacing: 0.3,
+    fontSize: 12,
+    fontWeight: '700' as const,
+  },
+  chipsScroll: {
+    maxHeight: 56,
+  },
+  chipsContent: {
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    gap: 8,
+  },
+  chip: {
+    backgroundColor: Colors.secondary,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    marginRight: 8,
+  },
+  chipText: {
+    color: Colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '600' as const,
   },
   messagesContainer: {
     flex: 1,
-  },
-  recommendationsCard: {
-    backgroundColor: Colors.secondary,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: Colors.accent + '30',
-    padding: 14,
-    marginBottom: 16,
-    gap: 10,
-  },
-  recommendationsHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  recommendationsTitle: {
-    fontSize: 13,
-    fontWeight: '700' as const,
-    color: Colors.text,
-  },
-  recommendationRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 8,
-  },
-  recommendationText: {
-    flex: 1,
-    fontSize: 13,
-    lineHeight: 18,
-    color: Colors.textSecondary,
   },
   messagesContent: {
     padding: 16,
     paddingBottom: 8,
   },
   messageBubble: {
-    maxWidth: '85%',
     borderRadius: 16,
     padding: 14,
     marginBottom: 12,
+    maxWidth: '88%',
   },
   userBubble: {
-    backgroundColor: Colors.accent,
     alignSelf: 'flex-end',
-    borderBottomRightRadius: 4,
+    backgroundColor: '#1A1A25',
   },
   assistantBubble: {
-    backgroundColor: Colors.secondary,
     alignSelf: 'flex-start',
-    borderBottomLeftRadius: 4,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    backgroundColor: '#12121A',
+    borderLeftWidth: 2,
+    borderLeftColor: Colors.accent,
   },
   assistantHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
     marginBottom: 8,
   },
   assistantLabel: {
+    color: Colors.textMuted,
     fontSize: 11,
-    fontWeight: '700' as const,
-    color: Colors.accent,
-    letterSpacing: 0.5,
+    fontWeight: '800' as const,
+    letterSpacing: 1.2,
   },
   messageText: {
-    fontSize: 15,
-    lineHeight: 22,
+    fontSize: 14,
+    lineHeight: 20,
   },
   userText: {
-    color: Colors.primary,
+    color: Colors.text,
   },
   assistantText: {
     color: Colors.text,
   },
   messageActions: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 16,
-    marginTop: 10,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: Colors.border,
     flexWrap: 'wrap',
-  },
-  copyButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  copyText: {
-    fontSize: 12,
-    color: Colors.textMuted,
-  },
-  setDirectiveButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: Colors.accent + '12',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
-  },
-  setDirectiveText: {
-    fontSize: 12,
-    color: Colors.accent,
-    fontWeight: '500' as const,
-  },
-  typingIndicator: {
-    flexDirection: 'row',
-    alignItems: 'center',
     gap: 8,
+    marginTop: 12,
+  },
+  messageActionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: Colors.tertiary,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  messageActionText: {
+    color: Colors.textSecondary,
+    fontSize: 11,
+    fontWeight: '700' as const,
+  },
+  typingWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
   },
   typingText: {
-    fontSize: 14,
     color: Colors.textSecondary,
+    fontSize: 13,
   },
-  inputContainer: {
-    padding: 16,
-    paddingTop: 12,
-    backgroundColor: Colors.secondary,
-    borderTopWidth: 1,
-    borderTopColor: Colors.border,
-  },
-  inputWrapper: {
+  inputWrap: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    backgroundColor: Colors.tertiary,
-    borderRadius: 24,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    gap: 8,
+    gap: 10,
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+    backgroundColor: Colors.primary,
   },
   input: {
     flex: 1,
-    fontSize: 15,
+    minHeight: 52,
+    maxHeight: 120,
+    backgroundColor: Colors.secondary,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     color: Colors.text,
-    maxHeight: 100,
-    paddingVertical: 8,
+    fontSize: 14,
   },
   sendButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 48,
+    height: 48,
+    borderRadius: 14,
     backgroundColor: Colors.accent,
-    justifyContent: 'center',
     alignItems: 'center',
+    justifyContent: 'center',
   },
   sendButtonDisabled: {
-    backgroundColor: Colors.border,
+    backgroundColor: Colors.tertiary,
   },
 });

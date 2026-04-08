@@ -1,56 +1,54 @@
 import React, { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Animated, Dimensions } from 'react-native';
-import { Zap } from 'lucide-react-native';
+import { Animated, Dimensions, StyleSheet, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import Colors from '@/constants/colors';
 
-const { width, height } = Dimensions.get('window');
+const { width } = Dimensions.get('window');
 
 interface CinematicSplashProps {
   onComplete: () => void;
 }
 
 export default function CinematicSplash({ onComplete }: CinematicSplashProps) {
-  const logoOpacity = useRef(new Animated.Value(0)).current;
-  const logoScale = useRef(new Animated.Value(0.8)).current;
-  const textOpacity = useRef(new Animated.Value(0)).current;
-  const ringScale = useRef(new Animated.Value(0.5)).current;
-  const ringOpacity = useRef(new Animated.Value(0)).current;
   const containerOpacity = useRef(new Animated.Value(1)).current;
+  const wordmarkOpacity = useRef(new Animated.Value(0)).current;
+  const wordmarkTranslate = useRef(new Animated.Value(18)).current;
+  const haloOpacity = useRef(new Animated.Value(0)).current;
+  const haloScale = useRef(new Animated.Value(0.85)).current;
+  const shimmerTranslate = useRef(new Animated.Value(-280)).current;
 
   useEffect(() => {
     Animated.sequence([
       Animated.parallel([
-        Animated.timing(ringOpacity, {
-          toValue: 0.15,
-          duration: 400,
+        Animated.timing(haloOpacity, {
+          toValue: 0.2,
+          duration: 500,
           useNativeDriver: true,
         }),
-        Animated.timing(ringScale, {
-          toValue: 1,
-          duration: 600,
-          useNativeDriver: true,
-        }),
-      ]),
-      Animated.parallel([
-        Animated.timing(logoOpacity, {
+        Animated.timing(haloScale, {
           toValue: 1,
           duration: 700,
           useNativeDriver: true,
         }),
-        Animated.spring(logoScale, {
+      ]),
+      Animated.parallel([
+        Animated.timing(wordmarkOpacity, {
           toValue: 1,
-          friction: 8,
-          tension: 40,
+          duration: 700,
+          useNativeDriver: true,
+        }),
+        Animated.timing(wordmarkTranslate, {
+          toValue: 0,
+          duration: 700,
+          useNativeDriver: true,
+        }),
+        Animated.timing(shimmerTranslate, {
+          toValue: 280,
+          duration: 1000,
           useNativeDriver: true,
         }),
       ]),
-      Animated.timing(textOpacity, {
-        toValue: 1,
-        duration: 400,
-        useNativeDriver: true,
-      }),
-      Animated.delay(300),
+      Animated.delay(1000),
       Animated.timing(containerOpacity, {
         toValue: 0,
         duration: 500,
@@ -59,59 +57,46 @@ export default function CinematicSplash({ onComplete }: CinematicSplashProps) {
     ]).start(() => {
       onComplete();
     });
-  }, []);
+  }, [containerOpacity, haloOpacity, haloScale, onComplete, shimmerTranslate, wordmarkOpacity, wordmarkTranslate]);
 
   return (
-    <Animated.View style={[styles.container, { opacity: containerOpacity }]}>
-      <LinearGradient
-        colors={[Colors.primary, Colors.brand.cosmic, Colors.primary]}
-        style={styles.background}
-        start={{ x: 0.5, y: 0 }}
-        end={{ x: 0.5, y: 1 }}
-      />
-      
-      <Animated.View 
+    <Animated.View style={[styles.container, { opacity: containerOpacity }]}> 
+      <View style={styles.background} />
+
+      <Animated.View
         style={[
-          styles.ringContainer,
+          styles.halo,
           {
-            opacity: ringOpacity,
-            transform: [{ scale: ringScale }],
-          }
+            opacity: haloOpacity,
+            transform: [{ scale: haloScale }],
+          },
         ]}
       >
         <View style={styles.outerRing} />
-        <View style={styles.middleRing} />
         <View style={styles.innerRing} />
       </Animated.View>
 
-      <Animated.View 
+      <Animated.View
         style={[
-          styles.logoContainer,
+          styles.wordmarkWrap,
           {
-            opacity: logoOpacity,
-            transform: [{ scale: logoScale }],
-          }
+            opacity: wordmarkOpacity,
+            transform: [{ translateY: wordmarkTranslate }],
+          },
         ]}
       >
         <LinearGradient
           colors={[Colors.brandGradient.start, Colors.brandGradient.middle, Colors.brandGradient.end]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.logoGradient}
+          start={{ x: 0, y: 0.5 }}
+          end={{ x: 1, y: 0.5 }}
+          style={styles.wordmarkGradient}
         >
-          <View style={styles.logoInner}>
-            <Zap size={56} color={Colors.accent} strokeWidth={2} fill={Colors.accent} />
-          </View>
+          <Animated.View style={[styles.shimmer, { transform: [{ translateX: shimmerTranslate }] }]} />
         </LinearGradient>
+        <View style={styles.wordmarkInner}>
+          <Animated.Text style={styles.wordmarkText}>SKYFORGE</Animated.Text>
+        </View>
       </Animated.View>
-
-      <Animated.Text style={[styles.logoText, { opacity: textOpacity }]}>
-        SKYFORGE
-      </Animated.Text>
-      
-      <Animated.Text style={[styles.tagline, { opacity: textOpacity }]}>
-        AI-Powered Revenue Engine
-      </Animated.Text>
     </Animated.View>
   );
 }
@@ -120,77 +105,68 @@ const styles = StyleSheet.create({
   container: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: Colors.primary,
-    alignItems: 'center',
     justifyContent: 'center',
+    alignItems: 'center',
     zIndex: 1000,
   },
   background: {
     ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#0A0A0F',
   },
-  ringContainer: {
+  halo: {
     position: 'absolute',
     alignItems: 'center',
     justifyContent: 'center',
   },
   outerRing: {
     position: 'absolute',
-    width: width * 0.9,
-    height: width * 0.9,
-    borderRadius: (width * 0.9) / 2,
-    borderWidth: 1,
-    borderColor: Colors.brandGradient.start,
-  },
-  middleRing: {
-    position: 'absolute',
-    width: width * 0.6,
-    height: width * 0.6,
-    borderRadius: (width * 0.6) / 2,
+    width: width * 0.86,
+    height: width * 0.86,
+    borderRadius: (width * 0.86) / 2,
     borderWidth: 1,
     borderColor: Colors.brandGradient.middle,
   },
   innerRing: {
     position: 'absolute',
-    width: width * 0.35,
-    height: width * 0.35,
-    borderRadius: (width * 0.35) / 2,
+    width: width * 0.52,
+    height: width * 0.52,
+    borderRadius: (width * 0.52) / 2,
     borderWidth: 1,
     borderColor: Colors.brandGradient.end,
   },
-  logoContainer: {
-    shadowColor: Colors.brandGradient.start,
+  wordmarkWrap: {
+    width: Math.min(width - 48, 320),
+    height: 86,
+    borderRadius: 24,
+    overflow: 'hidden',
+    shadowColor: Colors.brandGradient.middle,
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.5,
-    shadowRadius: 30,
-    elevation: 20,
+    shadowOpacity: 0.35,
+    shadowRadius: 20,
+    elevation: 18,
   },
-  logoGradient: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
+  wordmarkGradient: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  shimmer: {
+    position: 'absolute',
+    width: 84,
+    top: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+  },
+  wordmarkInner: {
+    flex: 1,
+    margin: 1.5,
+    borderRadius: 22,
+    backgroundColor: '#0A0A0F',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 4,
   },
-  logoInner: {
-    width: 112,
-    height: 112,
-    borderRadius: 56,
-    backgroundColor: Colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  logoText: {
-    fontSize: 28,
-    fontWeight: '800' as const,
+  wordmarkText: {
     color: Colors.text,
-    letterSpacing: 6,
-    marginTop: 32,
-  },
-  tagline: {
-    fontSize: 13,
-    color: Colors.textSecondary,
-    letterSpacing: 2,
-    marginTop: 8,
-    textTransform: 'uppercase',
+    fontSize: 28,
+    fontWeight: '900' as const,
+    letterSpacing: 5,
   },
 });

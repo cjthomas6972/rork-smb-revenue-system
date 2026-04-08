@@ -3,69 +3,77 @@ import { Home, Zap, User, BarChart3 } from "lucide-react-native";
 import React from "react";
 import { StyleSheet, View } from "react-native";
 import Colors from "@/constants/colors";
+import CommandDrawer from "@/components/navigation/CommandDrawer";
 
 export default function TabLayout() {
   return (
-    <Tabs
-      screenOptions={{
-        tabBarActiveTintColor: Colors.accent,
-        tabBarInactiveTintColor: Colors.textMuted,
-        tabBarStyle: styles.tabBar,
-        tabBarLabelStyle: styles.tabLabel,
-        headerStyle: styles.header,
-        headerTitleStyle: styles.headerTitle,
-        headerTintColor: Colors.text,
-      }}
-    >
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: "Execute",
-          tabBarIcon: ({ color, size }) => <Home color={color} size={size} />,
+    <View style={styles.container}>
+      <Tabs
+        screenOptions={{
+          tabBarActiveTintColor: Colors.accent,
+          tabBarInactiveTintColor: Colors.textMuted,
+          tabBarStyle: styles.tabBar,
+          tabBarLabelStyle: styles.tabLabel,
+          headerStyle: styles.header,
+          headerTitleStyle: styles.headerTitle,
+          headerTintColor: Colors.text,
         }}
-      />
-      <Tabs.Screen
-        name="advisor"
-        options={{
-          title: "Forge",
-          tabBarIcon: ({ color, size, focused }) => (
-            <View style={focused ? styles.activeIconContainer : undefined}>
-              <Zap color={color} size={size} fill={focused ? color : 'transparent'} />
-            </View>
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="review"
-        options={{
-          title: "Review",
-          tabBarIcon: ({ color, size }) => <BarChart3 color={color} size={size} />,
-        }}
-      />
-      <Tabs.Screen
-        name="profile"
-        options={{
-          title: "Profile",
-          tabBarIcon: ({ color, size }) => <User color={color} size={size} />,
-        }}
-      />
-      <Tabs.Screen
-        name="assets"
-        options={{
-          href: null,
-        }}
-      />
-      <Tabs.Screen
-        name="content"
-        options={{
-          href: null,
-        }}
-      />
-    </Tabs>
+      >
+        <Tabs.Screen
+          name="index"
+          options={{
+            title: "TODAY",
+            tabBarIcon: ({ color, size }) => <Home color={color} size={size} />,
+          }}
+        />
+        <Tabs.Screen
+          name="advisor"
+          options={{
+            title: "FORGE",
+            tabBarIcon: ({ color, size, focused }) => (
+              <View style={focused ? styles.activeIconContainer : undefined}>
+                <Zap color={color} size={size} fill={focused ? color : 'transparent'} />
+              </View>
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="review"
+          options={{
+            title: "INTEL",
+            tabBarIcon: ({ color, size }) => <BarChart3 color={color} size={size} />,
+          }}
+        />
+        <Tabs.Screen
+          name="profile"
+          options={{
+            title: "HQ",
+            tabBarIcon: ({ color, size }) => <User color={color} size={size} />,
+          }}
+        />
+        <Tabs.Screen
+          name="assets"
+          options={{
+            href: null,
+          }}
+        />
+        <Tabs.Screen
+          name="content"
+          options={{
+            href: null,
+          }}
+        />
+      </Tabs>
+      <CommandDrawer />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: Colors.primary,
+  },
   tabBar: {
     backgroundColor: Colors.secondary,
     borderTopColor: Colors.border,

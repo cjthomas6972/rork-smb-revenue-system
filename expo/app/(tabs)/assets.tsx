@@ -1,509 +1,298 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
   Alert,
-  TextInput,
+  FlatList,
   Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import {
-  Plus,
-  FileText,
-  Phone,
-  MessageSquare,
-  Mail,
-  Target,
-  CheckCircle,
-  Clock,
-  Trash2,
-  Edit3,
-  X,
-  Briefcase,
-  Star,
-  Trophy,
-  BarChart3,
-  Link2,
-} from 'lucide-react-native';
+import { Archive, Copy, Edit3, Plus, Star, Trash2, X } from 'lucide-react-native';
+import * as Haptics from 'expo-haptics';
+import Colors from '@/constants/colors';
 import { useBusiness } from '@/store/BusinessContext';
 import { RevenueAsset } from '@/types/business';
-import Colors from '@/constants/colors';
-import * as Haptics from 'expo-haptics';
-import { useAutonomousOS } from '@/hooks/useAutonomousOS';
 
-const ASSET_TYPES = [
-  { key: 'offer', label: 'Offer', icon: Target },
-  { key: 'script', label: 'Sales Script', icon: Phone },
-  { key: 'dm', label: 'DM Script', icon: MessageSquare },
-  { key: 'followup', label: 'Follow-up', icon: Mail },
-  { key: 'funnel', label: 'Funnel', icon: FileText },
+const FILTERS: Array<{ key: 'all' | RevenueAsset['type']; label: string }> = [
+  { key: 'all', label: 'All' },
+  { key: 'offer', label: 'Offers' },
+  { key: 'script', label: 'Scripts' },
+  { key: 'funnel', label: 'Funnels' },
+  { key: 'dm', label: 'DMs' },
+  { key: 'followup', label: 'Followups' },
+];
+
+const SORTS = [
+  { key: 'recent', label: 'Recently used' },
+  { key: 'rating', label: 'Highest rated' },
+  { key: 'results', label: 'Most results' },
 ] as const;
 
-function TopPerformingSection({ assets }: { assets: RevenueAsset[] }) {
-  const ranked = React.useMemo(() => {
-    const withUsage = assets.filter(a => (a.usageCount || 0) > 0);
-    return withUsage
-      .map(a => {
-        const usage = a.usageCount || 0;
-        const results = a.resultCount || 0;
-        const rating = a.rating || 0;
-        const ratio = usage > 0 ? results / usage : 0;
-        const score = (ratio * 0.6 + (rating / 5) * 0.4) * 100;
-        return { ...a, ratio, score };
-      })
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 5);
-  }, [assets]);
+type SortKey = (typeof SORTS)[number]['key'];
 
-  if (ranked.length === 0) return null;
-
-  return (
-    <View style={topStyles.container}>
-      <View style={topStyles.header}>
-        <Trophy size={16} color="#F59E0B" />
-        <Text style={topStyles.headerText}>Top Performing Assets</Text>
-      </View>
-      {ranked.map((item, idx) => (
-        <View key={item.id} style={topStyles.row}>
-          <View style={[topStyles.rank, { backgroundColor: idx === 0 ? '#F59E0B20' : Colors.tertiary }]}>
-            <Text style={[topStyles.rankText, idx === 0 && { color: '#F59E0B' }]}>{idx + 1}</Text>
-          </View>
-          <View style={topStyles.info}>
-            <Text style={topStyles.title} numberOfLines={1}>{item.title}</Text>
-            <View style={topStyles.stats}>
-              <Text style={topStyles.stat}>{item.usageCount || 0} uses</Text>
-              <Text style={topStyles.statDot}>{"\u00B7"}</Text>
-              <Text style={topStyles.stat}>{item.resultCount || 0} results</Text>
-              <Text style={topStyles.statDot}>{"\u00B7"}</Text>
-              <View style={topStyles.ratingRow}>
-                <Star size={10} color="#F59E0B" fill="#F59E0B" />
-                <Text style={topStyles.stat}>{(item.rating || 0).toFixed(1)}</Text>
-              </View>
-            </View>
-          </View>
-          <Text style={topStyles.score}>{Math.round(item.score)}</Text>
-        </View>
-      ))}
-    </View>
-  );
-}
-
-const topStyles = StyleSheet.create({
-  container: {
-    backgroundColor: Colors.secondary,
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    gap: 10,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 4,
-  },
-  headerText: {
-    fontSize: 14,
-    fontWeight: '700' as const,
-    color: Colors.text,
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingVertical: 6,
-  },
-  rank: {
-    width: 24,
-    height: 24,
-    borderRadius: 6,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  rankText: {
-    fontSize: 12,
-    fontWeight: '700' as const,
-    color: Colors.textSecondary,
-  },
-  info: {
-    flex: 1,
-    gap: 2,
-  },
-  title: {
-    fontSize: 13,
-    fontWeight: '600' as const,
-    color: Colors.text,
-  },
-  stats: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  stat: {
-    fontSize: 11,
-    color: Colors.textMuted,
-  },
-  statDot: {
-    fontSize: 11,
-    color: Colors.textMuted,
-  },
-  ratingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-  },
-  score: {
-    fontSize: 14,
-    fontWeight: '700' as const,
-    color: Colors.accent,
-  },
-});
+const TYPE_COLORS: Record<RevenueAsset['type'], string> = {
+  offer: '#2563EB',
+  script: '#7C3AED',
+  funnel: '#F97316',
+  dm: '#00D4AA',
+  followup: '#EF4444',
+};
 
 export default function AssetsScreen() {
-  const { assets, addAsset, updateAsset, deleteAsset, rateAsset, incrementAssetResult, activeProject, activeProjectId } = useBusiness();
-  const [selectedType, setSelectedType] = useState<string | null>(null);
-  const [isModalVisible, setIsModalVisible] = useState(false);
-  const [editingAsset, setEditingAsset] = useState<RevenueAsset | null>(null);
-  const [newTitle, setNewTitle] = useState('');
-  const [newContent, setNewContent] = useState('');
-  const [newType, setNewType] = useState<RevenueAsset['type']>('offer');
-  const autonomousSnapshot = useAutonomousOS(activeProject, []);
+  const {
+    activeProjectId,
+    activeProject,
+    assets,
+    addAsset,
+    updateAsset,
+    deleteAsset,
+    rateAsset,
+  } = useBusiness();
 
-  const filteredAssets = selectedType
-    ? assets.filter((a) => a.type === selectedType)
-    : assets;
+  const [filter, setFilter] = useState<'all' | RevenueAsset['type']>('all');
+  const [sortBy, setSortBy] = useState<SortKey>('recent');
+  const [selectedAsset, setSelectedAsset] = useState<RevenueAsset | null>(null);
+  const [editorVisible, setEditorVisible] = useState<boolean>(false);
+  const [draftTitle, setDraftTitle] = useState<string>('');
+  const [draftContent, setDraftContent] = useState<string>('');
+  const [draftType, setDraftType] = useState<RevenueAsset['type']>('offer');
 
-  const getTypeIcon = (type: string) => {
-    const typeConfig = ASSET_TYPES.find((t) => t.key === type);
-    const IconComponent = typeConfig?.icon || FileText;
-    return <IconComponent size={18} color={Colors.accent} />;
-  };
+  const filteredAssets = useMemo(() => {
+    const base = filter === 'all' ? assets : assets.filter((asset) => asset.type === filter);
+    const sorted = [...base];
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'active':
-        return <CheckCircle size={14} color={Colors.success} />;
-      case 'tested':
-        return <Target size={14} color={Colors.warning} />;
-      default:
-        return <Clock size={14} color={Colors.textMuted} />;
-    }
-  };
-
-  const handleRateAsset = (assetId: string, rating: number) => {
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    rateAsset({ id: assetId, rating });
-  };
-
-  const handleIncrementResult = (assetId: string) => {
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    incrementAssetResult(assetId);
-  };
-
-  const handleAddAsset = () => {
-    setEditingAsset(null);
-    setNewTitle('');
-    setNewContent('');
-    setNewType('offer');
-    setIsModalVisible(true);
-  };
-
-  const handleEditAsset = (asset: RevenueAsset) => {
-    setEditingAsset(asset);
-    setNewTitle(asset.title);
-    setNewContent(asset.content);
-    setNewType(asset.type);
-    setIsModalVisible(true);
-  };
-
-  const handleSaveAsset = () => {
-    if (!newTitle.trim() || !newContent.trim()) {
-      Alert.alert('Error', 'Please fill in all fields');
-      return;
+    if (sortBy === 'rating') {
+      sorted.sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
+    } else if (sortBy === 'results') {
+      sorted.sort((a, b) => (b.resultCount ?? 0) - (a.resultCount ?? 0));
+    } else {
+      sorted.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
     }
 
-    if (!activeProjectId) {
-      Alert.alert('Error', 'No project selected');
+    return sorted;
+  }, [assets, filter, sortBy]);
+
+  const openNewAsset = () => {
+    setSelectedAsset(null);
+    setDraftTitle('');
+    setDraftContent('');
+    setDraftType('offer');
+    setEditorVisible(true);
+  };
+
+  const openEditAsset = (asset: RevenueAsset) => {
+    setSelectedAsset(asset);
+    setDraftTitle(asset.title);
+    setDraftContent(asset.content);
+    setDraftType(asset.type);
+    setEditorVisible(true);
+  };
+
+  const saveAsset = () => {
+    if (!activeProjectId) return;
+    if (!draftTitle.trim() || !draftContent.trim()) {
+      Alert.alert('Missing info', 'Add a title and content first.');
       return;
     }
 
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-    if (editingAsset) {
+    if (selectedAsset) {
       updateAsset({
-        id: editingAsset.id,
-        updates: { title: newTitle, content: newContent, type: newType },
+        id: selectedAsset.id,
+        updates: {
+          title: draftTitle.trim(),
+          content: draftContent.trim(),
+          type: draftType,
+        },
       });
     } else {
-      const newAsset: RevenueAsset = {
-        id: Date.now().toString(),
+      const now = new Date().toISOString();
+      addAsset({
+        id: `${Date.now()}`,
         projectId: activeProjectId,
-        type: newType,
-        title: newTitle,
-        content: newContent,
+        type: draftType,
+        title: draftTitle.trim(),
+        content: draftContent.trim(),
         status: 'draft',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        createdAt: now,
+        updatedAt: now,
         usageCount: 0,
         resultCount: 0,
         rating: 0,
-      };
-      addAsset(newAsset);
+      });
     }
 
-    setIsModalVisible(false);
+    setEditorVisible(false);
   };
 
-  const handleDeleteAsset = (id: string) => {
-    Alert.alert('Delete Asset', 'Are you sure you want to delete this asset?', [
+  const archiveAsset = (asset: RevenueAsset) => {
+    updateAsset({ id: asset.id, updates: { status: 'draft' } });
+    setSelectedAsset(null);
+  };
+
+  const removeAsset = (assetId: string) => {
+    Alert.alert('Delete asset', 'Remove this asset from the arsenal?', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete',
         style: 'destructive',
-        onPress: () => {
-          void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-          deleteAsset(id);
-        },
+        onPress: () => deleteAsset(assetId),
       },
     ]);
-  };
-
-  const handleStatusChange = (asset: RevenueAsset) => {
-    const statusOrder: RevenueAsset['status'][] = ['draft', 'active', 'tested'];
-    const currentIndex = statusOrder.indexOf(asset.status);
-    const nextStatus = statusOrder[(currentIndex + 1) % statusOrder.length];
-    
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    updateAsset({ id: asset.id, updates: { status: nextStatus } });
   };
 
   if (!activeProject) {
     return (
       <View style={styles.emptyContainer}>
-        <Briefcase size={48} color={Colors.textMuted} />
-        <Text style={styles.emptyTitle}>No Project Selected</Text>
-        <Text style={styles.emptyText}>
-          Select or create a project to manage your revenue assets
-        </Text>
+        <Archive size={42} color={Colors.textMuted} />
+        <Text style={styles.emptyTitle}>No active arsenal</Text>
+        <Text style={styles.emptyText}>Select a project to access saved offers, scripts, and followups.</Text>
       </View>
     );
   }
 
   return (
     <View style={styles.container}>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.filterContainer}
-        contentContainerStyle={styles.filterContent}
-      >
-        <TouchableOpacity
-          style={[styles.filterChip, !selectedType && styles.filterChipActive]}
-          onPress={() => setSelectedType(null)}
-        >
-          <Text style={[styles.filterText, !selectedType && styles.filterTextActive]}>
-            All
-          </Text>
-        </TouchableOpacity>
-        {ASSET_TYPES.map((type) => (
-          <TouchableOpacity
-            key={type.key}
-            style={[styles.filterChip, selectedType === type.key && styles.filterChipActive]}
-            onPress={() => setSelectedType(type.key)}
-          >
-            <Text
-              style={[styles.filterText, selectedType === type.key && styles.filterTextActive]}
-            >
-              {type.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
+      <View style={styles.topBar}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
+          {FILTERS.map((item) => {
+            const selected = filter === item.key;
+            return (
+              <TouchableOpacity key={item.key} style={[styles.filterChip, selected && styles.filterChipActive]} onPress={() => setFilter(item.key)}>
+                <Text style={[styles.filterChipText, selected && styles.filterChipTextActive]}>{item.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.sortRow}>
+          {SORTS.map((item) => {
+            const selected = sortBy === item.key;
+            return (
+              <TouchableOpacity key={item.key} style={[styles.sortChip, selected && styles.sortChipActive]} onPress={() => setSortBy(item.key)}>
+                <Text style={[styles.sortChipText, selected && styles.sortChipTextActive]}>{item.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      </View>
 
-      <ScrollView style={styles.assetsList} contentContainerStyle={styles.assetsContent}>
-        {autonomousSnapshot && autonomousSnapshot.pages.length > 0 ? (
-          <View style={styles.pagesSection}>
-            <Text style={styles.pagesSectionTitle}>Presence Pages</Text>
-            {autonomousSnapshot.pages.map((page) => (
-              <View key={page.id} style={styles.pageCard}>
-                <View>
-                  <Text style={styles.pageTitle}>{page.title}</Text>
-                  <Text style={styles.pageMeta}>/{page.slug} · {page.status}</Text>
+      <FlatList
+        data={filteredAssets}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={styles.listContent}
+        renderItem={({ item }) => {
+          const typeColor = TYPE_COLORS[item.type];
+          return (
+            <TouchableOpacity style={styles.card} activeOpacity={0.88} onPress={() => setSelectedAsset(item)}>
+              <View style={styles.cardHeader}>
+                <View style={[styles.typeBadge, { backgroundColor: `${typeColor}18`, borderColor: `${typeColor}44` }]}>
+                  <Text style={[styles.typeBadgeText, { color: typeColor }]}>{item.type.toUpperCase()}</Text>
                 </View>
-                <Text style={styles.pageSections}>{page.sections.join(' · ')}</Text>
+                <View style={[styles.statusBadge, item.status === 'active' && styles.statusBadgeActive, item.status === 'tested' && styles.statusBadgeTested]}>
+                  <Text style={styles.statusBadgeText}>{item.status.toUpperCase()}</Text>
+                </View>
               </View>
-            ))}
-          </View>
-        ) : null}
-        <TopPerformingSection assets={assets} />
-        {filteredAssets.length === 0 ? (
+              <Text style={styles.cardTitle}>{item.title}</Text>
+              <Text style={styles.cardPreview} numberOfLines={2}>{item.content}</Text>
+              <View style={styles.statsRow}>
+                <Text style={styles.statsText}>{item.usageCount} uses</Text>
+                <Text style={styles.statsDot}>·</Text>
+                <Text style={styles.statsText}>{item.resultCount} results</Text>
+                <Text style={styles.statsDot}>·</Text>
+                <Text style={styles.statsText}>★ {item.rating}</Text>
+              </View>
+            </TouchableOpacity>
+          );
+        }}
+        ListEmptyComponent={
           <View style={styles.emptyState}>
-            <FileText size={48} color={Colors.textMuted} />
-            <Text style={styles.emptyStateTitle}>No assets yet</Text>
-            <Text style={styles.emptyStateText}>
-              Create offers, scripts, and funnels to grow your revenue
-            </Text>
+            <Archive size={40} color={Colors.textMuted} />
+            <Text style={styles.emptyStateTitle}>Your arsenal is empty.</Text>
+            <Text style={styles.emptyStateText}>Go to FORGE and ask SKYFORGE to write your first offer script.</Text>
           </View>
-        ) : (
-          filteredAssets.map((asset) => (
-            <View key={asset.id} style={styles.assetCard}>
-              <View style={styles.assetHeader}>
-                <View style={styles.assetTypeIcon}>{getTypeIcon(asset.type)}</View>
-                <View style={styles.assetInfo}>
-                  <Text style={styles.assetTitle}>{asset.title}</Text>
-                  <Text style={styles.assetType}>
-                    {ASSET_TYPES.find((t) => t.key === asset.type)?.label}
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  style={styles.statusButton}
-                  onPress={() => handleStatusChange(asset)}
-                >
-                  {getStatusIcon(asset.status)}
-                  <Text style={styles.statusText}>{asset.status}</Text>
-                </TouchableOpacity>
-              </View>
-              <Text style={styles.assetContent} numberOfLines={3}>
-                {asset.content}
-              </Text>
-              <View style={styles.assetMetrics}>
-                <View style={styles.assetMetricItem}>
-                  <Link2 size={12} color={Colors.textMuted} />
-                  <Text style={styles.assetMetricText}>{asset.usageCount || 0} uses</Text>
-                </View>
-                <View style={styles.assetMetricItem}>
-                  <BarChart3 size={12} color={Colors.textMuted} />
-                  <Text style={styles.assetMetricText}>{asset.resultCount || 0} results</Text>
-                </View>
-                <View style={styles.assetRating}>
-                  {[1, 2, 3, 4, 5].map(star => (
-                    <TouchableOpacity key={star} onPress={() => handleRateAsset(asset.id, star)} hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}>
-                      <Star
-                        size={14}
-                        color="#F59E0B"
-                        fill={(asset.rating || 0) >= star ? '#F59E0B' : 'transparent'}
-                      />
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
+        }
+      />
 
-              <View style={styles.assetActions}>
-                <TouchableOpacity
-                  style={styles.actionButton}
-                  onPress={() => handleIncrementResult(asset.id)}
-                >
-                  <Target size={16} color={Colors.accent} />
-                  <Text style={[styles.actionText, { color: Colors.accent }]}>+Result</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.actionButton}
-                  onPress={() => handleEditAsset(asset)}
-                >
-                  <Edit3 size={16} color={Colors.textSecondary} />
-                  <Text style={styles.actionText}>Edit</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.actionButton}
-                  onPress={() => handleDeleteAsset(asset.id)}
-                >
-                  <Trash2 size={16} color={Colors.error} />
-                  <Text style={[styles.actionText, { color: Colors.error }]}>Delete</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          ))
-        )}
-      </ScrollView>
-
-      <TouchableOpacity style={styles.fab} onPress={handleAddAsset}>
-        <Plus size={24} color={Colors.primary} />
+      <TouchableOpacity style={styles.fab} onPress={openNewAsset} testID="arsenal-add-asset-button">
+        <Plus size={22} color={Colors.text} />
       </TouchableOpacity>
 
-      <Modal
-        visible={isModalVisible}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() => setIsModalVisible(false)}
-      >
+      <Modal visible={selectedAsset !== null} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setSelectedAsset(null)}>
         <View style={styles.modalContainer}>
           <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>
-              {editingAsset ? 'Edit Asset' : 'New Asset'}
-            </Text>
-            <TouchableOpacity onPress={() => setIsModalVisible(false)}>
-              <X size={24} color={Colors.text} />
+            <Text style={styles.modalTitle}>{selectedAsset?.title ?? 'Asset'}</Text>
+            <TouchableOpacity onPress={() => setSelectedAsset(null)}>
+              <X size={22} color={Colors.text} />
             </TouchableOpacity>
           </View>
-
-          <ScrollView style={styles.modalContent}>
-            <Text style={styles.inputLabel}>Type</Text>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              style={styles.typeSelector}
-            >
-              {ASSET_TYPES.map((type) => (
-                <TouchableOpacity
-                  key={type.key}
-                  style={[
-                    styles.typeOption,
-                    newType === type.key && styles.typeOptionActive,
-                  ]}
-                  onPress={() => setNewType(type.key as RevenueAsset['type'])}
-                >
-                  <type.icon
-                    size={18}
-                    color={newType === type.key ? Colors.primary : Colors.textSecondary}
-                  />
-                  <Text
-                    style={[
-                      styles.typeOptionText,
-                      newType === type.key && styles.typeOptionTextActive,
-                    ]}
-                  >
-                    {type.label}
-                  </Text>
+          <ScrollView style={styles.modalBody}>
+            <Text style={styles.viewerType}>{selectedAsset?.type.toUpperCase()} · {selectedAsset?.status.toUpperCase()}</Text>
+            <Text style={styles.viewerContent}>{selectedAsset?.content}</Text>
+            <View style={styles.viewerRatingRow}>
+              {[1, 2, 3, 4, 5].map((star) => (
+                <TouchableOpacity key={star} onPress={() => selectedAsset && rateAsset({ id: selectedAsset.id, rating: star })}>
+                  <Star size={20} color="#F59E0B" fill={(selectedAsset?.rating ?? 0) >= star ? '#F59E0B' : 'transparent'} />
                 </TouchableOpacity>
               ))}
+            </View>
+          </ScrollView>
+          <View style={styles.viewerActions}>
+            <TouchableOpacity style={styles.viewerAction} onPress={() => selectedAsset && openEditAsset(selectedAsset)}>
+              <Edit3 size={16} color={Colors.accent} />
+              <Text style={styles.viewerActionText}>EDIT</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.viewerAction} onPress={() => selectedAsset && archiveAsset(selectedAsset)}>
+              <Copy size={16} color={Colors.accent} />
+              <Text style={styles.viewerActionText}>ARCHIVE</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.viewerActionDanger} onPress={() => selectedAsset && removeAsset(selectedAsset.id)}>
+              <Trash2 size={16} color={Colors.error} />
+              <Text style={styles.viewerActionDangerText}>DELETE</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={editorVisible} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setEditorVisible(false)}>
+        <View style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>{selectedAsset ? 'Edit asset' : 'New asset'}</Text>
+            <TouchableOpacity onPress={() => setEditorVisible(false)}>
+              <X size={22} color={Colors.text} />
+            </TouchableOpacity>
+          </View>
+          <ScrollView style={styles.modalBody}>
+            <Text style={styles.inputLabel}>Type</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.editorTypeRow}>
+              {FILTERS.filter((item) => item.key !== 'all').map((item) => {
+                const selected = draftType === item.key;
+                return (
+                  <TouchableOpacity key={item.key} style={[styles.editorTypeChip, selected && styles.editorTypeChipActive]} onPress={() => setDraftType(item.key as RevenueAsset['type'])}>
+                    <Text style={[styles.editorTypeChipText, selected && styles.editorTypeChipTextActive]}>{item.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
             </ScrollView>
-
             <Text style={styles.inputLabel}>Title</Text>
-            <TextInput
-              style={styles.textInput}
-              value={newTitle}
-              onChangeText={setNewTitle}
-              placeholder="Enter asset title..."
-              placeholderTextColor={Colors.textMuted}
-            />
-
+            <TextInput style={styles.input} value={draftTitle} onChangeText={setDraftTitle} placeholder="Asset title" placeholderTextColor={Colors.textMuted} />
             <Text style={styles.inputLabel}>Content</Text>
             <TextInput
-              style={[styles.textInput, styles.contentInput]}
-              value={newContent}
-              onChangeText={setNewContent}
-              placeholder="Enter your script, offer, or content..."
+              style={styles.contentInput}
+              value={draftContent}
+              onChangeText={setDraftContent}
+              placeholder="Write the script, offer, or follow-up here..."
               placeholderTextColor={Colors.textMuted}
               multiline
               textAlignVertical="top"
             />
           </ScrollView>
-
-          <View style={styles.modalActions}>
-            <TouchableOpacity
-              style={styles.cancelButton}
-              onPress={() => setIsModalVisible(false)}
-            >
-              <Text style={styles.cancelButtonText}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.saveButton} onPress={handleSaveAsset}>
-              <Text style={styles.saveButtonText}>Save Asset</Text>
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity style={styles.saveButton} onPress={saveAsset}>
+            <Text style={styles.saveButtonText}>SAVE ASSET</Text>
+          </TouchableOpacity>
         </View>
       </Modal>
     </View>
@@ -515,319 +304,316 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.primary,
   },
-  emptyContainer: {
-    flex: 1,
-    backgroundColor: Colors.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 40,
-  },
-  emptyTitle: {
-    fontSize: 18,
-    fontWeight: '600' as const,
-    color: Colors.text,
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  emptyText: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-    textAlign: 'center',
-  },
-  filterContainer: {
-    maxHeight: 56,
+  topBar: {
+    paddingTop: 12,
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
   },
-  filterContent: {
+  filterRow: {
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingBottom: 10,
     gap: 8,
   },
   filterChip: {
-    paddingHorizontal: 16,
+    borderRadius: 999,
+    paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 20,
     backgroundColor: Colors.secondary,
+    borderWidth: 1,
+    borderColor: Colors.border,
     marginRight: 8,
   },
   filterChipActive: {
     backgroundColor: Colors.accent,
+    borderColor: Colors.accent,
   },
-  filterText: {
-    fontSize: 13,
-    fontWeight: '500' as const,
+  filterChipText: {
     color: Colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '700' as const,
   },
-  filterTextActive: {
+  filterChipTextActive: {
     color: Colors.primary,
   },
-  assetsList: {
-    flex: 1,
+  sortRow: {
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    gap: 8,
   },
-  assetsContent: {
-    padding: 16,
-    paddingBottom: 100,
-  },
-  pagesSection: {
-    backgroundColor: Colors.secondary,
-    borderRadius: 14,
+  sortChip: {
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    backgroundColor: Colors.primary,
     borderWidth: 1,
     borderColor: Colors.border,
-    padding: 14,
-    marginBottom: 16,
-    gap: 10,
+    marginRight: 8,
   },
-  pagesSectionTitle: {
-    fontSize: 14,
-    fontWeight: '700' as const,
-    color: Colors.text,
+  sortChipActive: {
+    borderColor: Colors.accent,
   },
-  pageCard: {
-    backgroundColor: Colors.tertiary,
-    borderRadius: 12,
-    padding: 12,
-    gap: 6,
-  },
-  pageTitle: {
-    fontSize: 13,
-    fontWeight: '600' as const,
-    color: Colors.text,
-  },
-  pageMeta: {
+  sortChipText: {
+    color: Colors.textMuted,
     fontSize: 11,
-    color: Colors.textMuted,
-    marginTop: 2,
   },
-  pageSections: {
-    fontSize: 12,
-    lineHeight: 18,
-    color: Colors.textSecondary,
+  sortChipTextActive: {
+    color: Colors.accent,
   },
-  emptyState: {
-    alignItems: 'center',
-    paddingVertical: 60,
-  },
-  emptyStateTitle: {
-    fontSize: 18,
-    fontWeight: '600' as const,
-    color: Colors.text,
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  emptyStateText: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-    textAlign: 'center',
-    paddingHorizontal: 40,
-  },
-  assetCard: {
-    backgroundColor: Colors.secondary,
-    borderRadius: 12,
+  listContent: {
     padding: 16,
-    marginBottom: 12,
+    paddingBottom: 120,
+  },
+  card: {
+    backgroundColor: Colors.secondary,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: Colors.border,
+    padding: 16,
+    marginBottom: 12,
   },
-  assetHeader: {
+  cardHeader: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 12,
   },
-  assetTypeIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
-    backgroundColor: Colors.tertiary,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  assetInfo: {
-    flex: 1,
-  },
-  assetTitle: {
-    fontSize: 15,
-    fontWeight: '600' as const,
-    color: Colors.text,
-    marginBottom: 2,
-  },
-  assetType: {
-    fontSize: 12,
-    color: Colors.textMuted,
-  },
-  statusButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
+  typeBadge: {
+    borderRadius: 999,
+    borderWidth: 1,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: 12,
-    backgroundColor: Colors.tertiary,
   },
-  statusText: {
+  typeBadgeText: {
     fontSize: 11,
-    fontWeight: '500' as const,
-    color: Colors.textSecondary,
-    textTransform: 'capitalize',
+    fontWeight: '700' as const,
   },
-  assetContent: {
-    fontSize: 13,
+  statusBadge: {
+    borderRadius: 999,
+    backgroundColor: Colors.tertiary,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  statusBadgeActive: {
+    backgroundColor: '#00D4AA22',
+  },
+  statusBadgeTested: {
+    backgroundColor: '#F9731622',
+  },
+  statusBadgeText: {
     color: Colors.textSecondary,
+    fontSize: 10,
+    fontWeight: '700' as const,
+  },
+  cardTitle: {
+    color: Colors.text,
+    fontSize: 16,
+    fontWeight: '700' as const,
+    marginBottom: 8,
+  },
+  cardPreview: {
+    color: Colors.textSecondary,
+    fontSize: 14,
     lineHeight: 20,
     marginBottom: 12,
   },
-  assetMetrics: {
+  statsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 14,
-    marginBottom: 10,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    backgroundColor: Colors.tertiary,
-    borderRadius: 8,
   },
-  assetMetricItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  assetMetricText: {
-    fontSize: 11,
+  statsText: {
     color: Colors.textMuted,
+    fontSize: 12,
   },
-  assetRating: {
-    flexDirection: 'row',
+  statsDot: {
+    color: Colors.textMuted,
+    marginHorizontal: 6,
+  },
+  emptyContainer: {
+    flex: 1,
+    backgroundColor: Colors.primary,
     alignItems: 'center',
-    gap: 2,
-    marginLeft: 'auto',
+    justifyContent: 'center',
+    padding: 32,
   },
-  assetActions: {
-    flexDirection: 'row',
-    gap: 16,
-    borderTopWidth: 1,
-    borderTopColor: Colors.border,
-    paddingTop: 12,
+  emptyTitle: {
+    color: Colors.text,
+    fontSize: 18,
+    fontWeight: '700' as const,
+    marginTop: 14,
+    marginBottom: 8,
   },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  actionText: {
-    fontSize: 13,
+  emptyText: {
     color: Colors.textSecondary,
+    fontSize: 14,
+    textAlign: 'center',
+  },
+  emptyState: {
+    marginTop: 80,
+    alignItems: 'center',
+  },
+  emptyStateTitle: {
+    color: Colors.text,
+    fontSize: 18,
+    fontWeight: '700' as const,
+    marginTop: 14,
+    marginBottom: 8,
+  },
+  emptyStateText: {
+    color: Colors.textSecondary,
+    fontSize: 14,
+    textAlign: 'center',
+    maxWidth: 280,
   },
   fab: {
     position: 'absolute',
     right: 20,
-    bottom: 20,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    bottom: 30,
+    width: 58,
+    height: 58,
+    borderRadius: 18,
     backgroundColor: Colors.accent,
-    justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: Colors.accent,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
+    justifyContent: 'center',
   },
   modalContainer: {
     flex: 1,
     backgroundColor: Colors.primary,
+    padding: 16,
   },
   modalHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    justifyContent: 'space-between',
+    paddingTop: 12,
+    marginBottom: 16,
   },
   modalTitle: {
-    fontSize: 18,
-    fontWeight: '600' as const,
     color: Colors.text,
+    fontSize: 20,
+    fontWeight: '700' as const,
   },
-  modalContent: {
+  modalBody: {
     flex: 1,
-    padding: 16,
   },
-  inputLabel: {
-    fontSize: 13,
-    fontWeight: '600' as const,
-    color: Colors.textSecondary,
-    marginBottom: 8,
+  viewerType: {
+    color: Colors.textMuted,
+    fontSize: 11,
+    fontWeight: '700' as const,
+    letterSpacing: 1.2,
+    marginBottom: 14,
+  },
+  viewerContent: {
+    color: Colors.text,
+    fontSize: 15,
+    lineHeight: 24,
+  },
+  viewerRatingRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 24,
+  },
+  viewerActions: {
+    flexDirection: 'row',
+    gap: 10,
     marginTop: 16,
   },
-  typeSelector: {
-    flexDirection: 'row',
-  },
-  typeOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 10,
+  viewerAction: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 12,
     backgroundColor: Colors.secondary,
-    marginRight: 8,
-  },
-  typeOptionActive: {
-    backgroundColor: Colors.accent,
-  },
-  typeOptionText: {
-    fontSize: 13,
-    fontWeight: '500' as const,
-    color: Colors.textSecondary,
-  },
-  typeOptionTextActive: {
-    color: Colors.primary,
-  },
-  textInput: {
-    backgroundColor: Colors.secondary,
-    borderRadius: 10,
-    padding: 14,
-    fontSize: 15,
-    color: Colors.text,
     borderWidth: 1,
     borderColor: Colors.border,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  viewerActionText: {
+    color: Colors.text,
+    fontSize: 12,
+    fontWeight: '700' as const,
+  },
+  viewerActionDanger: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 12,
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: Colors.error,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  viewerActionDangerText: {
+    color: Colors.error,
+    fontSize: 12,
+    fontWeight: '700' as const,
+  },
+  inputLabel: {
+    color: Colors.textMuted,
+    fontSize: 11,
+    fontWeight: '700' as const,
+    letterSpacing: 1.2,
+    marginBottom: 10,
+    marginTop: 14,
+  },
+  editorTypeRow: {
+    gap: 8,
+    paddingBottom: 4,
+  },
+  editorTypeChip: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.secondary,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginRight: 8,
+  },
+  editorTypeChipActive: {
+    borderColor: Colors.accent,
+  },
+  editorTypeChipText: {
+    color: Colors.textSecondary,
+    fontSize: 12,
+  },
+  editorTypeChipTextActive: {
+    color: Colors.accent,
+  },
+  input: {
+    minHeight: 50,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.secondary,
+    paddingHorizontal: 14,
+    color: Colors.text,
+    fontSize: 14,
   },
   contentInput: {
-    height: 200,
-    textAlignVertical: 'top',
-  },
-  modalActions: {
-    flexDirection: 'row',
-    padding: 16,
-    gap: 12,
-    borderTopWidth: 1,
-    borderTopColor: Colors.border,
-  },
-  cancelButton: {
-    flex: 1,
-    paddingVertical: 14,
-    borderRadius: 10,
-    backgroundColor: Colors.tertiary,
-    alignItems: 'center',
-  },
-  cancelButtonText: {
-    fontSize: 15,
-    fontWeight: '600' as const,
-    color: Colors.textSecondary,
+    minHeight: 220,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.secondary,
+    padding: 14,
+    color: Colors.text,
+    fontSize: 14,
   },
   saveButton: {
-    flex: 1,
-    paddingVertical: 14,
-    borderRadius: 10,
+    minHeight: 52,
+    borderRadius: 14,
     backgroundColor: Colors.accent,
     alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 16,
   },
   saveButtonText: {
-    fontSize: 15,
-    fontWeight: '600' as const,
     color: Colors.primary,
+    fontSize: 14,
+    fontWeight: '800' as const,
+    letterSpacing: 0.5,
   },
 });

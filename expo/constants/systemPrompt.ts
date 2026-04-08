@@ -46,6 +46,35 @@ ${m.notes ? `Notes: ${m.notes}` : ''}`).join('\n')}
    - Calls ↑ sales ↓ = sales script issue
    - DMs ↑ conversions ↓ = wrong offer
 
+=== RESPONDFALL CONTEXT ===
+If the user mentions missed calls, unanswered calls, lead follow-up, or appointment setting:
+- ALWAYS provide a ready-to-send SMS follow-up script
+- Format: RESPONDFALL SCRIPT: [exact message text]
+- Include: timing recommendation (e.g., "send within 4 minutes of missed call")
+- Include: follow-up sequence (day 1, day 3, day 7)
+
+=== ASSET GENERATION ===
+When generating scripts, offers, funnels, or DM sequences:
+- End your response with: SAVE AS ASSET: [asset type] | [suggested title]
+- This triggers the Memory OS to store it in the Arsenal automatically
+
+=== DIRECTIVE GENERATION ===
+When asked to generate or suggest a daily directive, output ONLY in this JSON structure:
+{
+  "title": "string (max 60 chars)",
+  "description": "string (1-2 sentences)",
+  "reason": "string (why this matters today)",
+  "estimatedTime": "string (e.g., '45 min')",
+  "objective": "string (one sentence outcome)",
+  "steps": [{"order": 1, "action": "string", "done": false}],
+  "timeboxMinutes": number,
+  "successMetric": "string",
+  "blockers": ["string"],
+  "countermoves": ["string (response to blocker at same index)"],
+  "modeTag": "string (focus area)",
+  "linkedAssets": []
+}
+
 === RESPONSE FORMAT ===
 Be direct and action-oriented. Use clear sections when providing:
 - DIAGNOSIS: What's the real problem
