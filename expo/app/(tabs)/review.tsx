@@ -1,10 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import {
-  Modal,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -19,13 +17,11 @@ import {
   TrendingDown,
   TrendingUp,
   Minus,
-  X,
 } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { useBusiness } from '@/store/BusinessContext';
-import { Metrics } from '@/types/business';
+import MetricsModal from '@/components/metrics/MetricsModal';
 
 const BOTTLENECK_LABELS: Record<string, string> = {
   traffic: 'Traffic',
@@ -50,8 +46,6 @@ const FIELD_CONFIG = [
   { key: 'calls', label: 'Calls', icon: Phone },
   { key: 'sales', label: 'Sales', icon: ShoppingCart },
 ] as const;
-
-type MetricFieldKey = (typeof FIELD_CONFIG)[number]['key'];
 
 function DeltaIndicator({ value }: { value: number }) {
   if (value > 0) {
@@ -88,18 +82,9 @@ export default function IntelScreen() {
     weeklyReviews,
     generateWeeklyReview,
     isGeneratingReview,
-    addMetrics,
   } = useBusiness();
 
   const [isMetricsModalOpen, setIsMetricsModalOpen] = useState<boolean>(false);
-  const [draft, setDraft] = useState<Record<MetricFieldKey | 'notes', string>>({
-    views: '',
-    clicks: '',
-    messages: '',
-    calls: '',
-    sales: '',
-    notes: '',
-  });
 
   const latestReview = weeklyReviews.length > 0
     ? [...weeklyReviews].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0]
@@ -113,27 +98,6 @@ export default function IntelScreen() {
     if (currentBottleneck.category === 'follow-up') return 'Revenue is leaking after the first touch because follow-up is too slow or too weak.';
     return 'Execution is being constrained by process and delivery friction.';
   }, [currentBottleneck]);
-
-  const saveMetrics = () => {
-    if (!activeProjectId) return;
-    const now = new Date();
-    const payload: Metrics = {
-      id: `${Date.now()}`,
-      projectId: activeProjectId,
-      date: now.toISOString().split('T')[0],
-      views: Number(draft.views) || 0,
-      clicks: Number(draft.clicks) || 0,
-      messages: Number(draft.messages) || 0,
-      calls: Number(draft.calls) || 0,
-      sales: Number(draft.sales) || 0,
-      notes: draft.notes || undefined,
-    };
-
-    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    addMetrics(payload);
-    setDraft({ views: '', clicks: '', messages: '', calls: '', sales: '', notes: '' });
-    setIsMetricsModalOpen(false);
-  };
 
   if (!activeProject) {
     return (
@@ -253,54 +217,7 @@ export default function IntelScreen() {
         </View>
       </ScrollView>
 
-      <Modal visible={isMetricsModalOpen} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setIsMetricsModalOpen(false)}>
-        <View style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Log metrics</Text>
-            <TouchableOpacity onPress={() => setIsMetricsModalOpen(false)}>
-              <X size={22} color={Colors.text} />
-            </TouchableOpacity>
-          </View>
-          <ScrollView contentContainerStyle={styles.modalContent}>
-            {FIELD_CONFIG.map((field) => {
-              const Icon = field.icon;
-              return (
-                <View key={field.key} style={styles.inputCard}>
-                  <View style={styles.inputHeader}>
-                    <Icon size={18} color={Colors.accent} />
-                    <Text style={styles.inputLabel}>{field.label}</Text>
-                  </View>
-                  <TextInput
-                    style={styles.input}
-                    value={draft[field.key]}
-                    onChangeText={(value) => setDraft((current) => ({ ...current, [field.key]: value }))}
-                    keyboardType="numeric"
-                    placeholder="0"
-                    placeholderTextColor={Colors.textMuted}
-                  />
-                </View>
-              );
-            })}
-            <View style={styles.inputCard}>
-              <Text style={styles.inputLabel}>Notes</Text>
-              <TextInput
-                style={styles.notesInput}
-                value={draft.notes}
-                onChangeText={(value) => setDraft((current) => ({ ...current, notes: value }))}
-                multiline
-                placeholder="What happened today?"
-                placeholderTextColor={Colors.textMuted}
-                textAlignVertical="top"
-              />
-            </View>
-          </ScrollView>
-          <TouchableOpacity style={styles.logButton} onPress={saveMetrics} testID="intel-log-metrics-button">
-            <LinearGradient colors={[Colors.brandGradient.start, Colors.brandGradient.middle, Colors.brandGradient.end]} style={styles.logButtonGradient}>
-              <Text style={styles.logButtonText}>LOG IT</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-        </View>
-      </Modal>
+      <MetricsModal visible={isMetricsModalOpen} onClose={() => setIsMetricsModalOpen(false)} />
     </View>
   );
 }
@@ -606,80 +523,6 @@ const styles = StyleSheet.create({
   planButtonText: {
     color: Colors.text,
     fontSize: 13,
-    fontWeight: '800' as const,
-    letterSpacing: 0.5,
-  },
-  modalContainer: {
-    flex: 1,
-    backgroundColor: Colors.primary,
-    padding: 16,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingTop: 12,
-    marginBottom: 16,
-  },
-  modalTitle: {
-    color: Colors.text,
-    fontSize: 22,
-    fontWeight: '700' as const,
-  },
-  modalContent: {
-    paddingBottom: 20,
-  },
-  inputCard: {
-    backgroundColor: Colors.secondary,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    padding: 14,
-    marginBottom: 12,
-  },
-  inputHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 10,
-  },
-  inputLabel: {
-    color: Colors.text,
-    fontSize: 14,
-    fontWeight: '700' as const,
-  },
-  input: {
-    minHeight: 50,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    backgroundColor: Colors.tertiary,
-    paddingHorizontal: 14,
-    color: Colors.text,
-    fontSize: 16,
-  },
-  notesInput: {
-    minHeight: 120,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    backgroundColor: Colors.tertiary,
-    padding: 14,
-    color: Colors.text,
-    fontSize: 14,
-  },
-  logButton: {
-    borderRadius: 14,
-    overflow: 'hidden',
-  },
-  logButtonGradient: {
-    minHeight: 52,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  logButtonText: {
-    color: Colors.text,
-    fontSize: 14,
     fontWeight: '800' as const,
     letterSpacing: 0.5,
   },

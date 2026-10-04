@@ -24,15 +24,17 @@ import {
   ChartNoAxesColumn,
   Package,
   Sparkles,
-  PencilLine,
+  FileText,
+  PhoneMissed,
   AlertTriangle,
 } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { useBusiness } from '@/store/BusinessContext';
-import { DailyDirective } from '@/types/business';
+import { DailyDirective, RevenueAsset } from '@/types/business';
 import { useAutonomousOS } from '@/hooks/useAutonomousOS';
+import MetricsModal from '@/components/metrics/MetricsModal';
 
 const BOTTLENECK_LABELS: Record<string, string> = {
   traffic: 'Traffic',
@@ -52,6 +54,14 @@ const BOTTLENECK_COLORS: Record<string, string> = {
 
 type ProjectAction = 'archive' | 'delete';
 
+const ASSET_TYPE_LABELS: Record<RevenueAsset['type'], string> = {
+  offer: 'offers',
+  script: 'scripts',
+  funnel: 'funnels',
+  dm: 'DMs',
+  followup: 'followups',
+};
+
 export default function TodayScreen() {
   const router = useRouter();
   const {
@@ -61,6 +71,7 @@ export default function TodayScreen() {
     isOnboardingComplete,
     isLoading,
     metrics,
+    assets,
     currentBottleneck,
     executionStats,
     switchProject,
@@ -76,9 +87,54 @@ export default function TodayScreen() {
   const [isProjectActionsOpen, setIsProjectActionsOpen] = useState<boolean>(false);
   const [selectedProjectForActions, setSelectedProjectForActions] = useState<string | null>(null);
   const [showBlockers, setShowBlockers] = useState<boolean>(false);
+  const [isMetricsModalOpen, setIsMetricsModalOpen] = useState<boolean>(false);
 
   const autonomousSnapshot = useAutonomousOS(activeProject, metrics);
   const activeProjects = useMemo(() => projects.filter((project) => project.status === 'active'), [projects]);
+
+  const assetCounts = useMemo(() => {
+    const counts: Record<RevenueAsset['type'], number> = { offer: 0, script: 0, funnel: 0, dm: 0, followup: 0 };
+    assets.forEach((asset) => {
+      counts[asset.type] = (counts[asset.type] ?? 0) + 1;
+    });
+    return counts;
+  }, [assets]);
+
+  const arsenalDetail = useMemo(() => {
+    const parts = (Object.keys(assetCounts) as RevenueAsset['type'][])
+      .filter((key) => assetCounts[key] > 0)
+      .map((key) => `${assetCounts[key]} ${ASSET_TYPE_LABELS[key]}`);
+    return parts.length > 0 ? parts.join(' · ') : 'No assets yet — build your first offer';
+  }, [assetCounts]);
+
+  const todayTotals = useMemo(() => {
+    const totals = { views: 0, clicks: 0, messages: 0, calls: 0, sales: 0 };
+    if (!activeProject) return totals;
+    const todayKey = new Date().toISOString().split('T')[0];
+    metrics
+      .filter((entry) => entry.projectId === activeProject.id && entry.date === todayKey)
+      .forEach((entry) => {
+        totals.views += entry.views;
+        totals.clicks += entry.clicks;
+        totals.messages += entry.messages;
+        totals.calls += entry.calls;
+        totals.sales += entry.sales;
+      });
+    return totals;
+  }, [metrics, activeProject]);
+
+  const metricsDetail = useMemo(() => {
+    const parts = (Object.entries(todayTotals) as [keyof typeof todayTotals, number][])
+      .filter(([, value]) => value > 0)
+      .map(([key, value]) => `${key.charAt(0).toUpperCase()}${key.slice(1)} ${value}`)
+      .slice(0, 3);
+    return parts.length > 0 ? parts.join(' · ') : 'Not logged today';
+  }, [todayTotals]);
+
+  const openMetricsModal = useCallback(() => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setIsMetricsModalOpen(true);
+  }, []);
 
   const handleSwitchProject = useCallback((projectId: string) => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -292,13 +348,51 @@ export default function TodayScreen() {
           </View>
         </View>
 
+        <View style={styles.arsenalSection}>
+          <Text style={styles.sectionLabel}>ARSENAL</Text>
+          <View style={styles.arsenalCard}>
+            <TouchableOpacity
+              style={styles.arsenalRow}
+              activeOpacity={0.7}
+              onPress={() => router.push('/assets' as never)}
+              testID="arsenal-open-button"
+            >
+              <View style={styles.arsenalRowIcon}>
+                <Package size={18} color={Colors.accent} />
+              </View>
+              <View style={styles.arsenalRowText}>
+                <Text style={styles.arsenalRowTitle}>Arsenal</Text>
+                <Text style={styles.arsenalRowDetail} numberOfLines={1}>{arsenalDetail}</Text>
+              </View>
+              <Text style={[styles.arsenalCount, assets.length > 0 && styles.arsenalCountActive]}>{assets.length}</Text>
+              <ChevronRight size={16} color={Colors.textMuted} />
+            </TouchableOpacity>
+            <View style={styles.arsenalDivider} />
+            <TouchableOpacity
+              style={styles.arsenalRow}
+              activeOpacity={0.7}
+              onPress={openMetricsModal}
+              testID="metrics-update-button"
+            >
+              <View style={styles.arsenalRowIcon}>
+                <ChartNoAxesColumn size={18} color={Colors.accent} />
+              </View>
+              <View style={styles.arsenalRowText}>
+                <Text style={styles.arsenalRowTitle}>Today&apos;s metrics</Text>
+                <Text style={styles.arsenalRowDetail} numberOfLines={1}>{metricsDetail}</Text>
+              </View>
+              <ChevronRight size={16} color={Colors.textMuted} />
+            </TouchableOpacity>
+          </View>
+        </View>
+
         <View style={styles.quickActionsSection}>
           <Text style={styles.sectionLabel}>QUICK ACTIONS</Text>
           <View style={styles.quickActionsRow}>
-            <QuickActionButton icon={<PencilLine size={18} color={Colors.accent} />} label="LOG METRICS" onPress={() => router.push('/review' as never)} />
             <QuickActionButton icon={<Sparkles size={18} color={Colors.accent} />} label="ASK FORGE" onPress={() => router.push('/advisor' as never)} />
-            <QuickActionButton icon={<Package size={18} color={Colors.accent} />} label="VIEW ARSENAL" onPress={() => router.push('/assets' as never)} />
             <QuickActionButton icon={<ChartNoAxesColumn size={18} color={Colors.accent} />} label="WEEKLY REVIEW" onPress={() => router.push('/review' as never)} />
+            <QuickActionButton icon={<FileText size={18} color={Colors.accent} />} label="CONTENT LAB" onPress={() => router.push('/content' as never)} />
+            <QuickActionButton icon={<PhoneMissed size={18} color={Colors.accent} />} label="RESPONDFALL" onPress={() => router.push('/respondfall' as never)} />
           </View>
         </View>
       </ScrollView>
@@ -363,6 +457,8 @@ export default function TodayScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
+
+      <MetricsModal visible={isMetricsModalOpen} onClose={() => setIsMetricsModalOpen(false)} />
     </View>
   );
 }
@@ -679,6 +775,59 @@ const styles = StyleSheet.create({
   snapshotDetail: {
     color: Colors.textSecondary,
     fontSize: 13,
+  },
+  arsenalSection: {
+    marginBottom: 18,
+  },
+  arsenalCard: {
+    backgroundColor: Colors.secondary,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    overflow: 'hidden',
+  },
+  arsenalRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    minHeight: 64,
+  },
+  arsenalRowIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: Colors.tertiary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  arsenalRowText: {
+    flex: 1,
+  },
+  arsenalRowTitle: {
+    color: Colors.text,
+    fontSize: 15,
+    fontWeight: '700' as const,
+    marginBottom: 3,
+  },
+  arsenalRowDetail: {
+    color: Colors.textMuted,
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  arsenalCount: {
+    color: Colors.textMuted,
+    fontSize: 15,
+    fontWeight: '800' as const,
+  },
+  arsenalCountActive: {
+    color: Colors.accent,
+  },
+  arsenalDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: Colors.border,
+    marginHorizontal: 14,
   },
   quickActionsSection: {
     marginBottom: 12,
