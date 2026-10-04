@@ -193,7 +193,7 @@ export default function TodayScreen() {
 
         <View style={[styles.directiveCard, { borderLeftColor: bnColor }]}> 
           <LinearGradient
-            colors={['#12121A', '#1A1A25']}
+            colors={[Colors.secondary, Colors.tertiary]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={styles.directiveGradient}

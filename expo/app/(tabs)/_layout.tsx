@@ -1,13 +1,13 @@
 import { Tabs } from "expo-router";
 import { Home, Zap, User, BarChart3 } from "lucide-react-native";
 import React from "react";
-import { StyleSheet, View } from "react-native";
+import { StyleSheet } from "react-native";
 import Colors from "@/constants/colors";
 import CommandDrawer from "@/components/navigation/CommandDrawer";
 
 export default function TabLayout() {
   return (
-    <View style={styles.container}>
+    <>
       <Tabs
         screenOptions={{
           tabBarActiveTintColor: Colors.accent,
@@ -23,32 +23,28 @@ export default function TabLayout() {
           name="index"
           options={{
             title: "TODAY",
-            tabBarIcon: ({ color, size }) => <Home color={color} size={size} />,
+            tabBarIcon: ({ color, size }) => <Home color={color} size={size} strokeWidth={1.8} />,
           }}
         />
         <Tabs.Screen
           name="advisor"
           options={{
             title: "FORGE",
-            tabBarIcon: ({ color, size, focused }) => (
-              <View style={focused ? styles.activeIconContainer : undefined}>
-                <Zap color={color} size={size} fill={focused ? color : 'transparent'} />
-              </View>
-            ),
+            tabBarIcon: ({ color, size }) => <Zap color={color} size={size} strokeWidth={1.8} />,
           }}
         />
         <Tabs.Screen
           name="review"
           options={{
             title: "INTEL",
-            tabBarIcon: ({ color, size }) => <BarChart3 color={color} size={size} />,
+            tabBarIcon: ({ color, size }) => <BarChart3 color={color} size={size} strokeWidth={1.8} />,
           }}
         />
         <Tabs.Screen
           name="profile"
           options={{
             title: "HQ",
-            tabBarIcon: ({ color, size }) => <User color={color} size={size} />,
+            tabBarIcon: ({ color, size }) => <User color={color} size={size} strokeWidth={1.8} />,
           }}
         />
         <Tabs.Screen
@@ -65,40 +61,30 @@ export default function TabLayout() {
         />
       </Tabs>
       <CommandDrawer />
-    </View>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.primary,
-  },
   tabBar: {
-    backgroundColor: Colors.secondary,
+    backgroundColor: Colors.primary,
     borderTopColor: Colors.border,
-    borderTopWidth: 1,
-    paddingTop: 4,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: 6,
   },
   tabLabel: {
-    fontSize: 11,
-    fontWeight: "500" as const,
+    fontSize: 10,
+    fontWeight: "600" as const,
+    letterSpacing: 0.4,
   },
   header: {
     backgroundColor: Colors.primary,
     borderBottomColor: Colors.border,
-    borderBottomWidth: 1,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   headerTitle: {
     color: Colors.text,
     fontWeight: "600" as const,
-    fontSize: 18,
-  },
-  activeIconContainer: {
-    shadowColor: Colors.accent,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.5,
-    shadowRadius: 6,
-    elevation: 4,
+    fontSize: 17,
   },
 });

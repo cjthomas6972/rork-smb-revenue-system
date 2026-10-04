@@ -1,44 +1,65 @@
+/**
+ * SKYFORGE design system.
+ *
+ * One black canvas. Apple grays. A single accent — molten ember — reserved
+ * for the primary action and active states. No decoration that does not
+ * carry information. Simplicity is the ultimate sophistication.
+ */
 const Colors = {
-  primary: "#0A0A0F",
-  secondary: "#12121A",
-  tertiary: "#1A1A25",
-  accent: "#00D4AA",
-  accentDark: "#00B894",
-  accentLight: "#00E6B8",
-  warning: "#FFB800",
-  error: "#FF4757",
-  success: "#00D4AA",
-  text: "#FFFFFF",
-  textSecondary: "#A0A0A0",
-  textMuted: "#6B6B6B",
-  border: "#252530",
-  borderLight: "#353545",
-  cardBg: "#12121A",
-  inputBg: "#1A1A25",
-  overlay: "rgba(0, 0, 0, 0.85)",
+  // Surfaces: true black for OLED, graphite for elevation.
+  primary: "#000000",
+  secondary: "#0C0C0D",
+  tertiary: "#1A1A1C",
+
+  // The one accent. If everything is highlighted, nothing is.
+  accent: "#FF6B2C",
+  accentDark: "#E5511A",
+  accentLight: "#FF8A50",
+
+  // Functional colors — Apple system palette.
+  warning: "#FFD60A",
+  error: "#FF453A",
+  success: "#30D158",
+
+  // Type: Apple white on black; grays establish hierarchy, not color.
+  text: "#F5F5F7",
+  textSecondary: "#A1A1A6",
+  textMuted: "#6E6E73",
+
+  border: "#232326",
+  borderLight: "#38383C",
+  cardBg: "#0C0C0D",
+  inputBg: "#1A1A1C",
+  overlay: "rgba(0, 0, 0, 0.72)",
+
+  // Accent ramp for the rare filled control.
   gradient: {
-    start: "#00D4AA",
-    end: "#00B894",
+    start: "#FF7A3D",
+    end: "#F0511A",
   },
+
   brand: {
-    deepBlue: "#1E3A5F",
-    electricBlue: "#2563EB",
-    fireOrange: "#F97316",
-    flameRed: "#EF4444",
-    cosmic: "#0F172A",
-    nebula: "#1E1B4B",
+    deepBlue: "#2C2C2E",
+    electricBlue: "#48484A",
+    fireOrange: "#FF6B2C",
+    flameRed: "#FF453A",
+    cosmic: "#0C0C0D",
+    nebula: "#1A1A1C",
   },
+
+  // Graphite metallic — replaces the rainbow. Used on primary surfaces only.
   brandGradient: {
-    start: "#2563EB",
-    middle: "#7C3AED",
-    end: "#F97316",
+    start: "#3A3A3C",
+    middle: "#1C1C1E",
+    end: "#0C0C0D",
   },
+
   light: {
-    text: "#FFFFFF",
-    background: "#0A0A0F",
-    tint: "#00D4AA",
-    tabIconDefault: "#6B6B6B",
-    tabIconSelected: "#00D4AA",
+    text: "#F5F5F7",
+    background: "#000000",
+    tint: "#FF6B2C",
+    tabIconDefault: "#6E6E73",
+    tabIconSelected: "#FF6B2C",
   },
 };
 

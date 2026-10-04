@@ -471,11 +471,11 @@ const styles = StyleSheet.create({
   },
   userBubble: {
     alignSelf: 'flex-end',
-    backgroundColor: '#1A1A25',
+    backgroundColor: Colors.tertiary,
   },
   assistantBubble: {
     alignSelf: 'flex-start',
-    backgroundColor: '#12121A',
+    backgroundColor: Colors.secondary,
     borderLeftWidth: 2,
     borderLeftColor: Colors.accent,
   },
